@@ -97,3 +97,22 @@ pub fn remove_repo(db: State<'_, Database>, id: i64) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     Ok(())
 }
+
+#[tauri::command]
+pub fn open_in_cursor(path: String) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd")
+            .args(["/c", "cursor", &path])
+            .spawn()
+            .map_err(|e| format!("Failed to open in Cursor: {}", e))?;
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        std::process::Command::new("cursor")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| format!("Failed to open in Cursor: {}", e))?;
+    }
+    Ok(())
+}

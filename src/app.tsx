@@ -1,11 +1,15 @@
 /* eslint-disable unicorn/no-null */
 import {EmptyState} from '@/components/empty-state';
 import {RepoSidebar} from '@/components/repo-sidebar';
+import {Button} from '@/components/ui/button';
 import {SidebarInset, SidebarProvider} from '@/components/ui/sidebar';
 import {Toaster} from '@/components/ui/sonner';
 import type {Repo} from '@/lib/types';
 import {invoke} from '@tauri-apps/api/core';
+import {openPath} from '@tauri-apps/plugin-opener';
+import {FolderOpen, SquareTerminal} from 'lucide-react';
 import {useCallback, useEffect, useState} from 'react';
+import {toast} from 'sonner';
 
 function App() {
 	const [repos, setRepos] = useState<Repo[]>([]);
@@ -37,11 +41,47 @@ function App() {
 					<EmptyState onReposChange={loadRepos} />
 				) : selectedRepo ? (
 					<div className="flex flex-1 items-center justify-center p-6">
-						<div className="text-center space-y-2">
-							<h2 className="text-lg font-semibold">{selectedRepo.name}</h2>
-							<p className="text-sm text-muted-foreground">
-								{selectedRepo.path}
-							</p>
+						<div className="text-center space-y-4">
+							<div className="space-y-2">
+								<h2 className="text-lg font-semibold">
+									{selectedRepo.name}
+								</h2>
+								<p className="text-sm text-muted-foreground">
+									{selectedRepo.path}
+								</p>
+							</div>
+							<div className="flex items-center justify-center gap-2">
+								<Button
+									variant="outline"
+									size="sm"
+									onClick={async () => {
+										try {
+											await openPath(selectedRepo.path);
+										} catch (error) {
+											toast.error(String(error));
+										}
+									}}
+								>
+									<FolderOpen className="size-4" />
+									Show in Explorer
+								</Button>
+								<Button
+									variant="outline"
+									size="sm"
+									onClick={async () => {
+										try {
+											await invoke('open_in_cursor', {
+												path: selectedRepo.path,
+											});
+										} catch (error) {
+											toast.error(String(error));
+										}
+									}}
+								>
+									<SquareTerminal className="size-4" />
+									Open in Cursor
+								</Button>
+							</div>
 						</div>
 					</div>
 				) : (
