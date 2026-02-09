@@ -122,8 +122,6 @@ async function handleMoveToGroup(
 	}
 }
 
-const DND_DEBUG = true;
-
 type DropZone =
 	| {type: 'group'; groupId: number}
 	| {type: 'ungrouped'};
@@ -150,6 +148,11 @@ function getRepoIdFromDragEvent(event: React.DragEvent) {
 	const repoId = Number(repoIdData);
 	if (!Number.isInteger(repoId) || repoId <= 0) return null;
 	return repoId;
+}
+
+function handleDropZoneDragOver(event: React.DragEvent) {
+	event.preventDefault();
+	event.dataTransfer.dropEffect = 'move';
 }
 
 // --- Draggable Repo Item with Context Menu ---
@@ -270,28 +273,14 @@ function DraggableRepoItem({
 
 // --- Drop zone hook to fix dragLeave on child elements ---
 
-function useDropZone(
-	onDrop: (repoId: number) => Promise<void>,
-	dropLabel: string,
-) {
+function useDropZone(onDrop: (repoId: number) => Promise<void>) {
 	const [isDragOver, setIsDragOver] = useState(false);
 	const dragCounterReference = useRef(0);
-	const lastDragOverToastAtReference = useRef(0);
 	const handleDragEnter = (event: React.DragEvent) => {
 		event.preventDefault();
 		dragCounterReference.current += 1;
 		if (dragCounterReference.current === 1) {
 			setIsDragOver(true);
-		}
-	};
-	const handleDragOver = (event: React.DragEvent) => {
-		event.preventDefault();
-		event.dataTransfer.dropEffect = 'move';
-		if (!DND_DEBUG) return;
-		const now = Date.now();
-		if (now - lastDragOverToastAtReference.current >= 800) {
-			lastDragOverToastAtReference.current = now;
-			toast(`dnd dragover target=${dropLabel}`);
 		}
 	};
 	const handleDragLeave = () => {
@@ -306,16 +295,13 @@ function useDropZone(
 		setIsDragOver(false);
 		const repoId = getRepoIdFromDragEvent(event);
 		if (repoId === null) return;
-		if (DND_DEBUG) {
-			toast(`dnd drop target=${dropLabel} repo=${repoId}`);
-		}
 		await onDrop(repoId);
 	};
 
 	const handlers = {
 		// Capture handlers ensure nested interactive children can't block drop acceptance.
 		onDragEnterCapture: handleDragEnter,
-		onDragOverCapture: handleDragOver,
+		onDragOverCapture: handleDropZoneDragOver,
 		onDragLeaveCapture: handleDragLeave,
 		onDropCapture: handleDrop,
 	};
@@ -362,7 +348,6 @@ function GroupSection({
 				toast.error(String(error));
 			}
 		},
-		`group:${group.name}`,
 	);
 
 	const handleRename = useCallback(
@@ -543,7 +528,6 @@ function UngroupedSection({
 				toast.error(String(error));
 			}
 		},
-		'ungrouped',
 	);
 	const isPointerDragOver = activeDropZone?.type === 'ungrouped';
 
@@ -634,9 +618,6 @@ export function RepoSidebar({
 				if (!dragging) {
 					dragging = true;
 					setIsPointerDragging(true);
-					if (DND_DEBUG) {
-						toast(`dnd pointer-dragstart repo=${repo.id} (${repo.name})`);
-					}
 				}
 
 				const target = document.elementFromPoint(
@@ -666,32 +647,17 @@ export function RepoSidebar({
 				clearPointerDragState();
 
 				if (!zone) {
-					if (DND_DEBUG) {
-						toast(`dnd pointer-drop repo=${repo.id} zone=none`);
-					}
 					return;
 				}
 
 				try {
-					if (zone.type === 'group') {
-						if (DND_DEBUG) {
-							toast(
-								`dnd pointer-drop repo=${repo.id} group=${zone.groupId}`,
-							);
-						}
-						await invoke('move_repo_to_group', {
+					await (zone.type === 'group' ? invoke('move_repo_to_group', {
 							repoId: repo.id,
 							groupId: zone.groupId,
-						});
-					} else {
-						if (DND_DEBUG) {
-							toast(`dnd pointer-drop repo=${repo.id} group=ungrouped`);
-						}
-						await invoke('move_repo_to_group', {
+						}) : invoke('move_repo_to_group', {
 							repoId: repo.id,
 							groupId: null,
-						});
-					}
+						}));
 					onReposChange();
 				} catch (error) {
 					toast.error(String(error));
