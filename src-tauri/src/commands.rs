@@ -1,4 +1,5 @@
 use crate::db::Database;
+use rusqlite::Connection;
 use serde::Serialize;
 use std::path::Path;
 use tauri::State;
@@ -47,27 +48,86 @@ pub fn list_repos(db: State<'_, Database>) -> Result<Vec<Repo>, String> {
 #[tauri::command]
 pub fn add_repo(db: State<'_, Database>, path: String) -> Result<Repo, String> {
     let repo_path = Path::new(&path);
+    let name = validate_git_repo(repo_path)?;
 
-    // Check if the directory exists
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    insert_repo(&conn, &name, &path)
+}
+
+#[tauri::command]
+pub fn clone_repo(
+    db: State<'_, Database>,
+    url: String,
+    destination_parent: String,
+) -> Result<Repo, String> {
+    let trimmed_url = url.trim();
+    if trimmed_url.is_empty() {
+        return Err("Repository URL is required".to_string());
+    }
+
+    let parent_path = Path::new(&destination_parent);
+    if !parent_path.exists() || !parent_path.is_dir() {
+        return Err("Destination folder does not exist".to_string());
+    }
+
+    let repo_name = extract_repo_name_from_url(trimmed_url)?;
+    let destination_path = parent_path.join(&repo_name);
+    if destination_path.exists() {
+        return Err(format!(
+            "Destination already exists: {}",
+            destination_path.display()
+        ));
+    }
+
+    let output = std::process::Command::new("git")
+        .args(["clone", trimmed_url, &destination_path.to_string_lossy()])
+        .output()
+        .map_err(|e| format!("Failed to run git clone: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let message = if !stderr.is_empty() {
+            stderr
+        } else if !stdout.is_empty() {
+            stdout
+        } else {
+            "Git clone failed".to_string()
+        };
+        return Err(message);
+    }
+
+    validate_git_repo(&destination_path)?;
+    let destination = destination_path.to_string_lossy().to_string();
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    insert_repo(&conn, &repo_name, &destination)
+}
+
+#[tauri::command]
+pub fn remove_repo(db: State<'_, Database>, id: i64) -> Result<(), String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    conn.execute("DELETE FROM repos WHERE id = ?1", rusqlite::params![id])
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn validate_git_repo(repo_path: &Path) -> Result<String, String> {
     if !repo_path.exists() {
         return Err("Directory does not exist".to_string());
     }
 
-    // Check if it's a git repo
-    let git_dir = repo_path.join(".git");
-    if !git_dir.exists() {
+    if !repo_path.join(".git").exists() {
         return Err("The selected directory is not a Git repository".to_string());
     }
 
-    // Extract repo name from the directory name
-    let name = repo_path
+    Ok(repo_path
         .file_name()
-        .and_then(|n| n.to_str())
+        .and_then(|name| name.to_str())
         .unwrap_or("Unknown")
-        .to_string();
+        .to_string())
+}
 
-    let conn = db.conn.lock().map_err(|e| e.to_string())?;
-
+fn insert_repo(conn: &Connection, name: &str, path: &str) -> Result<Repo, String> {
     conn.execute(
         "INSERT INTO repos (name, path) VALUES (?1, ?2)",
         rusqlite::params![name, path],
@@ -81,32 +141,30 @@ pub fn add_repo(db: State<'_, Database>, path: String) -> Result<Repo, String> {
     })?;
 
     let id = conn.last_insert_rowid();
-
     let mut stmt = conn
         .prepare("SELECT id, name, path, group_id, created_at FROM repos WHERE id = ?1")
         .map_err(|e| e.to_string())?;
 
-    let repo = stmt
-        .query_row(rusqlite::params![id], |row| {
-            Ok(Repo {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                path: row.get(2)?,
-                group_id: row.get(3)?,
-                created_at: row.get(4)?,
-            })
+    stmt.query_row(rusqlite::params![id], |row| {
+        Ok(Repo {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            path: row.get(2)?,
+            group_id: row.get(3)?,
+            created_at: row.get(4)?,
         })
-        .map_err(|e| e.to_string())?;
-
-    Ok(repo)
+    })
+    .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-pub fn remove_repo(db: State<'_, Database>, id: i64) -> Result<(), String> {
-    let conn = db.conn.lock().map_err(|e| e.to_string())?;
-    conn.execute("DELETE FROM repos WHERE id = ?1", rusqlite::params![id])
-        .map_err(|e| e.to_string())?;
-    Ok(())
+fn extract_repo_name_from_url(url: &str) -> Result<String, String> {
+    let trimmed = url.trim_end_matches('/').trim_end_matches(".git");
+    let maybe_name = trimmed.rsplit(['/', ':']).next().unwrap_or_default();
+    if maybe_name.is_empty() {
+        return Err("Could not determine repository name from URL".to_string());
+    }
+
+    Ok(maybe_name.to_string())
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -168,7 +226,9 @@ fn parse_remote_url(remote_url: &str) -> Option<RemoteInfo> {
 pub fn list_groups(db: State<'_, Database>) -> Result<Vec<Group>, String> {
     let conn = db.conn.lock().map_err(|e| e.to_string())?;
     let mut stmt = conn
-        .prepare("SELECT id, name, sort_order, created_at FROM groups ORDER BY sort_order ASC, name ASC")
+        .prepare(
+            "SELECT id, name, sort_order, created_at FROM groups ORDER BY sort_order ASC, name ASC",
+        )
         .map_err(|e| e.to_string())?;
 
     let groups = stmt
@@ -193,7 +253,11 @@ pub fn create_group(db: State<'_, Database>, name: String) -> Result<Group, Stri
 
     // Get the next sort_order
     let max_order: i64 = conn
-        .query_row("SELECT COALESCE(MAX(sort_order), 0) FROM groups", [], |row| row.get(0))
+        .query_row(
+            "SELECT COALESCE(MAX(sort_order), 0) FROM groups",
+            [],
+            |row| row.get(0),
+        )
         .map_err(|e| e.to_string())?;
 
     conn.execute(
@@ -248,7 +312,11 @@ pub fn delete_group(db: State<'_, Database>, id: i64) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn move_repo_to_group(db: State<'_, Database>, repo_id: i64, group_id: Option<i64>) -> Result<(), String> {
+pub fn move_repo_to_group(
+    db: State<'_, Database>,
+    repo_id: i64,
+    group_id: Option<i64>,
+) -> Result<(), String> {
     let conn = db.conn.lock().map_err(|e| e.to_string())?;
     conn.execute(
         "UPDATE repos SET group_id = ?1 WHERE id = ?2",

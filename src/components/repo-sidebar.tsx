@@ -10,6 +10,7 @@ import {
 	AlertDialogTitle,
 	AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
+import {AddRepoDialog} from '@/components/add-repo-dialog';
 import {Button} from '@/components/ui/button';
 import {
 	Collapsible,
@@ -56,7 +57,6 @@ import {
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import type {Group, Repo} from '@/lib/types';
 import {invoke} from '@tauri-apps/api/core';
-import {open} from '@tauri-apps/plugin-dialog';
 import {
 	ArrowRightLeft,
 	ChevronRight,
@@ -78,26 +78,6 @@ type RepoSidebarProperties = {
 	onReposChange: () => void;
 	onGroupsChange: () => void;
 };
-
-async function handleAddRepo(onReposChange: () => void) {
-	const selected = await open({
-		directory: true,
-		multiple: false,
-		title: 'Select a Git repository',
-	});
-
-	if (!selected) {
-		return;
-	}
-
-	try {
-		await invoke('add_repo', {path: selected});
-		toast.success('Repository added successfully');
-		onReposChange();
-	} catch (error) {
-		toast.error(String(error));
-	}
-}
 
 async function handleRemoveRepo(id: number, onReposChange: () => void) {
 	try {
@@ -592,6 +572,7 @@ export function RepoSidebar({
 	onGroupsChange,
 }: RepoSidebarProperties) {
 	const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
+	const [isAddRepoOpen, setIsAddRepoOpen] = useState(false);
 	const [newGroupName, setNewGroupName] = useState('');
 	const inputReference = useRef<HTMLInputElement>(null);
 	const [activeDropZone, setActiveDropZone] = useState<DropZone | null>(null);
@@ -714,7 +695,7 @@ export function RepoSidebar({
 								<Button
 									variant="ghost"
 									size="icon-xs"
-									onClick={() => handleAddRepo(onReposChange)}
+									onClick={() => setIsAddRepoOpen(true)}
 								>
 									<Plus className="size-4" />
 								</Button>
@@ -759,6 +740,12 @@ export function RepoSidebar({
 					)}
 				</div>
 			</SidebarContent>
+
+			<AddRepoDialog
+				open={isAddRepoOpen}
+				onOpenChange={setIsAddRepoOpen}
+				onReposChange={onReposChange}
+			/>
 
 			{/* Create Group Dialog */}
 			<Dialog open={isCreateGroupOpen} onOpenChange={setIsCreateGroupOpen}>

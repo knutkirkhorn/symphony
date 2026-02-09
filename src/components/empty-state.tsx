@@ -1,34 +1,15 @@
+import {AddRepoDialog} from '@/components/add-repo-dialog';
 import {Button} from '@/components/ui/button';
-import {invoke} from '@tauri-apps/api/core';
-import {open} from '@tauri-apps/plugin-dialog';
 import {FolderGit2, Plus} from 'lucide-react';
-import {toast} from 'sonner';
+import {useState} from 'react';
 
 type EmptyStateProperties = {
 	onReposChange: () => void;
 };
 
-async function handleAddRepo(onReposChange: () => void) {
-	const selected = await open({
-		directory: true,
-		multiple: false,
-		title: 'Select a Git repository',
-	});
-
-	if (!selected) {
-		return;
-	}
-
-	try {
-		await invoke('add_repo', {path: selected});
-		toast.success('Repository added successfully');
-		onReposChange();
-	} catch (error) {
-		toast.error(String(error));
-	}
-}
-
 export function EmptyState({onReposChange}: EmptyStateProperties) {
+	const [isAddRepoOpen, setIsAddRepoOpen] = useState(false);
+
 	return (
 		<div className="flex flex-1 items-center justify-center">
 			<div className="flex flex-col items-center gap-4 text-center">
@@ -42,10 +23,15 @@ export function EmptyState({onReposChange}: EmptyStateProperties) {
 						agents.
 					</p>
 				</div>
-				<Button onClick={() => handleAddRepo(onReposChange)}>
+				<Button onClick={() => setIsAddRepoOpen(true)}>
 					<Plus className="size-4" />
 					Add Repository
 				</Button>
+				<AddRepoDialog
+					open={isAddRepoOpen}
+					onOpenChange={setIsAddRepoOpen}
+					onReposChange={onReposChange}
+				/>
 			</div>
 		</div>
 	);

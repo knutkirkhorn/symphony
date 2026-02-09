@@ -2,7 +2,7 @@ mod commands;
 mod db;
 
 use commands::{
-    add_repo, create_group, delete_group, get_remote_url, list_groups, list_repos,
+    add_repo, clone_repo, create_group, delete_group, get_remote_url, list_groups, list_repos,
     move_repo_to_group, open_in_cursor, remove_repo, rename_group,
 };
 use db::Database;
@@ -18,6 +18,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             list_repos,
             add_repo,
+            clone_repo,
             remove_repo,
             open_in_cursor,
             get_remote_url,
