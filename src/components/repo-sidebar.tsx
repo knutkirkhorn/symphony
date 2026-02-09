@@ -55,7 +55,7 @@ import {
 	SidebarMenuItem,
 } from '@/components/ui/sidebar';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
-import type {Group, Repo} from '@/lib/types';
+import type {Group, Repo, RepoSyncStatus} from '@/lib/types';
 import {invoke} from '@tauri-apps/api/core';
 import {
 	ArrowRightLeft,
@@ -65,6 +65,7 @@ import {
 	MoreHorizontal,
 	Pencil,
 	Plus,
+	RefreshCw,
 	Trash2,
 } from 'lucide-react';
 import {useCallback, useRef, useState, type FormEvent} from 'react';
@@ -73,10 +74,13 @@ import {toast} from 'sonner';
 type RepoSidebarProperties = {
 	repos: Repo[];
 	groups: Group[];
+	repoSyncStatusById: Record<number, RepoSyncStatus>;
+	isCheckingRepoUpdates: boolean;
 	selectedRepoId: number | null;
 	onRepoSelect: (repo: Repo) => void;
 	onReposChange: () => void;
 	onGroupsChange: () => void;
+	onCheckRepoUpdates: () => void;
 };
 
 async function handleRemoveRepo(id: number, onReposChange: () => void) {
@@ -137,6 +141,7 @@ function handleDropZoneDragOver(event: React.DragEvent) {
 
 function DraggableRepoItem({
 	repo,
+	syncStatus,
 	isActive,
 	groups,
 	onRepoSelect,
@@ -144,6 +149,7 @@ function DraggableRepoItem({
 	onPointerDragStart,
 }: {
 	repo: Repo;
+	syncStatus?: RepoSyncStatus;
 	isActive: boolean;
 	groups: Group[];
 	onRepoSelect: (repo: Repo) => void;
@@ -167,6 +173,11 @@ function DraggableRepoItem({
 					>
 						<FolderGit2 className="size-4" />
 						<span>{repo.name}</span>
+						{syncStatus?.can_pull && (
+							<span className="ml-auto rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300">
+								{syncStatus.behind} new
+							</span>
+						)}
 					</SidebarMenuButton>
 				</ContextMenuTrigger>
 				<ContextMenuContent>
@@ -292,6 +303,7 @@ function useDropZone(onDrop: (repoId: number) => Promise<void>) {
 function GroupSection({
 	group,
 	repos,
+	repoSyncStatusById,
 	allGroups,
 	activeDropZone,
 	selectedRepoId,
@@ -303,6 +315,7 @@ function GroupSection({
 }: {
 	group: Group;
 	repos: Repo[];
+	repoSyncStatusById: Record<number, RepoSyncStatus>;
 	allGroups: Group[];
 	activeDropZone: DropZone | null;
 	selectedRepoId: number | null;
@@ -431,6 +444,7 @@ function GroupSection({
 										<DraggableRepoItem
 											key={repo.id}
 											repo={repo}
+											syncStatus={repoSyncStatusById[repo.id]}
 											isActive={repo.id === selectedRepoId}
 											groups={allGroups}
 											onRepoSelect={onRepoSelect}
@@ -512,6 +526,7 @@ function GroupSection({
 function UngroupedSection({
 	repos,
 	groups,
+	repoSyncStatusById,
 	activeDropZone,
 	selectedRepoId,
 	onRepoSelect,
@@ -520,6 +535,7 @@ function UngroupedSection({
 }: {
 	repos: Repo[];
 	groups: Group[];
+	repoSyncStatusById: Record<number, RepoSyncStatus>;
 	activeDropZone: DropZone | null;
 	selectedRepoId: number | null;
 	onRepoSelect: (repo: Repo) => void;
@@ -558,6 +574,7 @@ function UngroupedSection({
 						<DraggableRepoItem
 							key={repo.id}
 							repo={repo}
+							syncStatus={repoSyncStatusById[repo.id]}
 							isActive={repo.id === selectedRepoId}
 							groups={groups}
 							onRepoSelect={onRepoSelect}
@@ -576,10 +593,13 @@ function UngroupedSection({
 export function RepoSidebar({
 	repos,
 	groups,
+	repoSyncStatusById,
+	isCheckingRepoUpdates,
 	selectedRepoId,
 	onRepoSelect,
 	onReposChange,
 	onGroupsChange,
+	onCheckRepoUpdates,
 }: RepoSidebarProperties) {
 	const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
 	const [isAddRepoOpen, setIsAddRepoOpen] = useState(false);
@@ -707,6 +727,21 @@ export function RepoSidebar({
 								<Button
 									variant="ghost"
 									size="icon-xs"
+									onClick={onCheckRepoUpdates}
+									disabled={isCheckingRepoUpdates}
+								>
+									<RefreshCw
+										className={`size-4 ${isCheckingRepoUpdates ? 'animate-spin' : ''}`}
+									/>
+								</Button>
+							</TooltipTrigger>
+							<TooltipContent side="right">Check updates</TooltipContent>
+						</Tooltip>
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<Button
+									variant="ghost"
+									size="icon-xs"
 									onClick={() => setIsAddRepoOpen(true)}
 								>
 									<Plus className="size-4" />
@@ -728,6 +763,7 @@ export function RepoSidebar({
 							key={group.id}
 							group={group}
 							repos={repos.filter(r => r.group_id === group.id)}
+							repoSyncStatusById={repoSyncStatusById}
 							allGroups={groups}
 							activeDropZone={activeDropZone}
 							selectedRepoId={selectedRepoId}
@@ -744,6 +780,7 @@ export function RepoSidebar({
 						<UngroupedSection
 							repos={ungroupedRepos}
 							groups={groups}
+							repoSyncStatusById={repoSyncStatusById}
 							activeDropZone={activeDropZone}
 							selectedRepoId={selectedRepoId}
 							onRepoSelect={onRepoSelect}

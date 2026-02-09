@@ -5,7 +5,13 @@ import {RepoSidebar} from '@/components/repo-sidebar';
 import {Button} from '@/components/ui/button';
 import {SidebarInset, SidebarProvider} from '@/components/ui/sidebar';
 import {Toaster} from '@/components/ui/sonner';
-import type {GitCommit, GitCommitFileDiff, Group, Repo} from '@/lib/types';
+import type {
+	GitCommit,
+	GitCommitFileDiff,
+	Group,
+	Repo,
+	RepoSyncStatus,
+} from '@/lib/types';
 import {invoke} from '@tauri-apps/api/core';
 import {openPath, openUrl} from '@tauri-apps/plugin-opener';
 import {ExternalLink, FolderOpen, SquareTerminal} from 'lucide-react';
@@ -41,6 +47,10 @@ function App() {
 	const [isDiffLoading, setIsDiffLoading] = useState(false);
 	const [historyError, setHistoryError] = useState<string | null>(null);
 	const [diffError, setDiffError] = useState<string | null>(null);
+	const [repoSyncStatusById, setRepoSyncStatusById] = useState<
+		Record<number, RepoSyncStatus>
+	>({});
+	const [isCheckingRepoUpdates, setIsCheckingRepoUpdates] = useState(false);
 	const historyRequestIdReference = useRef(0);
 	const diffRequestIdReference = useRef(0);
 
@@ -82,10 +92,58 @@ function App() {
 		}
 	}, []);
 
+	const checkRepoUpdates = useCallback(
+		async (fetch: boolean) => {
+			if (repos.length === 0) {
+				setRepoSyncStatusById({});
+				return;
+			}
+
+			setIsCheckingRepoUpdates(true);
+			try {
+				const entries = await Promise.all(
+					repos.map(async repo => {
+						try {
+							const status = await invoke<RepoSyncStatus>(
+								'get_repo_sync_status',
+								{
+									path: repo.path,
+									fetch,
+								},
+							);
+							return [repo.id, status] as const;
+						} catch (error) {
+							return [
+								repo.id,
+								{
+									has_remote: false,
+									has_upstream: false,
+									ahead: 0,
+									behind: 0,
+									can_pull: false,
+									error: String(error),
+								},
+							] as const;
+						}
+					}),
+				);
+
+				setRepoSyncStatusById(Object.fromEntries(entries));
+			} finally {
+				setIsCheckingRepoUpdates(false);
+			}
+		},
+		[repos],
+	);
+
 	useEffect(() => {
 		loadRepos();
 		loadGroups();
 	}, [loadRepos, loadGroups]);
+
+	useEffect(() => {
+		void checkRepoUpdates(false);
+	}, [checkRepoUpdates]);
 
 	// Fetch remote info whenever selectedRepo changes
 	useEffect(() => {
@@ -217,10 +275,13 @@ function App() {
 			<RepoSidebar
 				repos={repos}
 				groups={groups}
+				repoSyncStatusById={repoSyncStatusById}
+				isCheckingRepoUpdates={isCheckingRepoUpdates}
 				selectedRepoId={selectedRepo?.id ?? null}
 				onRepoSelect={setSelectedRepo}
 				onReposChange={loadRepos}
 				onGroupsChange={loadGroups}
+				onCheckRepoUpdates={() => void checkRepoUpdates(true)}
 			/>
 			<SidebarInset>
 				{repos.length === 0 ? (

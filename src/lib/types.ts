@@ -6,6 +6,15 @@ export type Repo = {
 	created_at: string;
 };
 
+export type RepoSyncStatus = {
+	has_remote: boolean;
+	has_upstream: boolean;
+	ahead: number;
+	behind: number;
+	can_pull: boolean;
+	error: string | null;
+};
+
 export type Group = {
 	id: number;
 	name: string;

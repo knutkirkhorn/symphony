@@ -189,6 +189,16 @@ pub struct GitCommitFileDiff {
     pub diff: String,
 }
 
+#[derive(Debug, Serialize, Clone)]
+pub struct RepoSyncStatus {
+    pub has_remote: bool,
+    pub has_upstream: bool,
+    pub ahead: u32,
+    pub behind: u32,
+    pub can_pull: bool,
+    pub error: Option<String>,
+}
+
 #[tauri::command]
 pub fn get_remote_url(path: String) -> Result<Option<RemoteInfo>, String> {
     let output = std::process::Command::new("git")
@@ -275,6 +285,73 @@ pub fn get_commit_changes(path: String, commit: String) -> Result<Vec<GitCommitF
     Ok(parse_commit_file_diffs(&output))
 }
 
+#[tauri::command]
+pub fn get_repo_sync_status(path: String, fetch: Option<bool>) -> Result<RepoSyncStatus, String> {
+    let mut status = RepoSyncStatus {
+        has_remote: false,
+        has_upstream: false,
+        ahead: 0,
+        behind: 0,
+        can_pull: false,
+        error: None,
+    };
+
+    // No origin means there is no upstream to compare against.
+    let has_origin = run_git_status_command(&path, &["remote", "get-url", "origin"])?;
+    if !has_origin {
+        return Ok(status);
+    }
+    status.has_remote = true;
+
+    let has_upstream = run_git_status_command(
+        &path,
+        &[
+            "rev-parse",
+            "--abbrev-ref",
+            "--symbolic-full-name",
+            "@{upstream}",
+        ],
+    )?;
+    if !has_upstream {
+        return Ok(status);
+    }
+    status.has_upstream = true;
+
+    if fetch.unwrap_or(false) {
+        let fetched = run_git_status_command(&path, &["fetch", "--quiet", "origin"])?;
+        if !fetched {
+            status.error = Some("Failed to fetch from origin".to_string());
+            return Ok(status);
+        }
+    }
+
+    let output = run_git_command(
+        &path,
+        &[
+            "rev-list".to_string(),
+            "--left-right".to_string(),
+            "--count".to_string(),
+            "@{upstream}...HEAD".to_string(),
+        ],
+    )?;
+
+    let mut parts = output.split_whitespace();
+    let behind = parts
+        .next()
+        .and_then(|part| part.parse::<u32>().ok())
+        .unwrap_or(0);
+    let ahead = parts
+        .next()
+        .and_then(|part| part.parse::<u32>().ok())
+        .unwrap_or(0);
+
+    status.behind = behind;
+    status.ahead = ahead;
+    status.can_pull = behind > 0;
+
+    Ok(status)
+}
+
 fn parse_remote_url(remote_url: &str) -> Option<RemoteInfo> {
     let url = remote_url.trim_end_matches(".git");
 
@@ -324,6 +401,15 @@ fn run_git_command(path: &str, args: &[String]) -> Result<String, String> {
     }
 
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+fn run_git_status_command(path: &str, args: &[&str]) -> Result<bool, String> {
+    let output = std::process::Command::new("git")
+        .args(args)
+        .current_dir(path)
+        .output()
+        .map_err(|e| format!("Failed to run git: {}", e))?;
+    Ok(output.status.success())
 }
 
 fn parse_commit_file_diffs(raw_output: &str) -> Vec<GitCommitFileDiff> {
