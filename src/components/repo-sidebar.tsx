@@ -1,4 +1,5 @@
 /* eslint-disable unicorn/no-null */
+import {AddRepoDialog} from '@/components/add-repo-dialog';
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -10,7 +11,6 @@ import {
 	AlertDialogTitle,
 	AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import {AddRepoDialog} from '@/components/add-repo-dialog';
 import {Button} from '@/components/ui/button';
 import {
 	Collapsible,
@@ -102,9 +102,7 @@ async function handleMoveToGroup(
 	}
 }
 
-type DropZone =
-	| {type: 'group'; groupId: number}
-	| {type: 'ungrouped'};
+type DropZone = {type: 'group'; groupId: number} | {type: 'ungrouped'};
 
 function readDropZoneFromElement(target: Element | null): DropZone | null {
 	const zoneElement = target?.closest<HTMLElement>('[data-drop-zone]');
@@ -475,7 +473,10 @@ function GroupSection({
 				</DialogContent>
 			</Dialog>
 
-			<AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+			<AlertDialog
+				open={isDeleteDialogOpen}
+				onOpenChange={setIsDeleteDialogOpen}
+			>
 				<AlertDialogContent>
 					<AlertDialogHeader>
 						<AlertDialogTitle>Delete group</AlertDialogTitle>
@@ -487,7 +488,10 @@ function GroupSection({
 					</AlertDialogHeader>
 					<AlertDialogFooter>
 						<AlertDialogCancel>Cancel</AlertDialogCancel>
-						<AlertDialogAction variant="destructive" onClick={handleDeleteGroup}>
+						<AlertDialogAction
+							variant="destructive"
+							onClick={handleDeleteGroup}
+						>
 							Delete
 						</AlertDialogAction>
 					</AlertDialogFooter>
@@ -652,13 +656,15 @@ export function RepoSidebar({
 				}
 
 				try {
-					await (zone.type === 'group' ? invoke('move_repo_to_group', {
-							repoId: repo.id,
-							groupId: zone.groupId,
-						}) : invoke('move_repo_to_group', {
-							repoId: repo.id,
-							groupId: null,
-						}));
+					await (zone.type === 'group'
+						? invoke('move_repo_to_group', {
+								repoId: repo.id,
+								groupId: zone.groupId,
+							})
+						: invoke('move_repo_to_group', {
+								repoId: repo.id,
+								groupId: null,
+							}));
 					onReposChange();
 				} catch (error) {
 					toast.error(String(error));

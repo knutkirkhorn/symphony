@@ -157,7 +157,7 @@ export function AddRepoDialog({
 							<Input
 								value={destinationParent}
 								onChange={event => setDestinationParent(event.target.value)}
-								placeholder="Destination folder"
+								placeholder="Destination parent directory"
 								disabled={isSubmitting}
 								className={cn('flex-1')}
 							/>
@@ -181,7 +181,9 @@ export function AddRepoDialog({
 							</Button>
 							<Button
 								type="submit"
-								disabled={isSubmitting || !cloneUrl.trim() || !destinationParent.trim()}
+								disabled={
+									isSubmitting || !cloneUrl.trim() || !destinationParent.trim()
+								}
 							>
 								Clone and add
 							</Button>
