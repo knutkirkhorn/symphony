@@ -6,7 +6,7 @@ import {SidebarInset, SidebarProvider} from '@/components/ui/sidebar';
 import {Toaster} from '@/components/ui/sonner';
 import type {Repo} from '@/lib/types';
 import {invoke} from '@tauri-apps/api/core';
-import {openUrl, openPath} from '@tauri-apps/plugin-opener';
+import {openPath, openUrl} from '@tauri-apps/plugin-opener';
 import {ExternalLink, FolderOpen, SquareTerminal} from 'lucide-react';
 import {useCallback, useEffect, useState} from 'react';
 import {toast} from 'sonner';
@@ -93,9 +93,7 @@ function App() {
 					<div className="flex flex-1 items-center justify-center p-6">
 						<div className="text-center space-y-4">
 							<div className="space-y-2">
-								<h2 className="text-lg font-semibold">
-									{selectedRepo.name}
-								</h2>
+								<h2 className="text-lg font-semibold">{selectedRepo.name}</h2>
 								<p className="text-sm text-muted-foreground">
 									{selectedRepo.path}
 								</p>
