@@ -6,14 +6,28 @@ import {SidebarInset, SidebarProvider} from '@/components/ui/sidebar';
 import {Toaster} from '@/components/ui/sonner';
 import type {Repo} from '@/lib/types';
 import {invoke} from '@tauri-apps/api/core';
-import {openPath} from '@tauri-apps/plugin-opener';
-import {FolderOpen, SquareTerminal} from 'lucide-react';
+import {openUrl, openPath} from '@tauri-apps/plugin-opener';
+import {ExternalLink, FolderOpen, SquareTerminal} from 'lucide-react';
 import {useCallback, useEffect, useState} from 'react';
 import {toast} from 'sonner';
+
+type RemoteInfo = {
+	provider: 'github' | 'gitlab';
+	url: string;
+};
+
+async function openRemoteInBrowser(remoteInfo: RemoteInfo) {
+	try {
+		await openUrl(remoteInfo.url);
+	} catch (error) {
+		toast.error(String(error));
+	}
+}
 
 function App() {
 	const [repos, setRepos] = useState<Repo[]>([]);
 	const [selectedRepo, setSelectedRepo] = useState<Repo | null>(null);
+	const [remoteInfo, setRemoteInfo] = useState<RemoteInfo | null>(null);
 
 	const loadRepos = useCallback(async () => {
 		try {
@@ -27,6 +41,42 @@ function App() {
 	useEffect(() => {
 		loadRepos();
 	}, [loadRepos]);
+
+	// Fetch remote info whenever selectedRepo changes
+	useEffect(() => {
+		if (!selectedRepo) {
+			setRemoteInfo(null);
+			return;
+		}
+
+		(async () => {
+			try {
+				const info = await invoke<RemoteInfo | null>('get_remote_url', {
+					path: selectedRepo.path,
+				});
+				setRemoteInfo(info);
+			} catch {
+				setRemoteInfo(null);
+			}
+		})();
+	}, [selectedRepo]);
+
+	// Keyboard shortcut: Ctrl+Shift+G to open remote in browser
+	useEffect(() => {
+		function handleKeyDown(event: KeyboardEvent) {
+			if (event.ctrlKey && event.shiftKey && event.key === 'G') {
+				event.preventDefault();
+				if (remoteInfo) {
+					openRemoteInBrowser(remoteInfo);
+				}
+			}
+		}
+
+		globalThis.addEventListener('keydown', handleKeyDown);
+		return () => {
+			globalThis.removeEventListener('keydown', handleKeyDown);
+		};
+	}, [remoteInfo]);
 
 	return (
 		<SidebarProvider>
@@ -50,7 +100,7 @@ function App() {
 									{selectedRepo.path}
 								</p>
 							</div>
-							<div className="flex items-center justify-center gap-2">
+							<div className="flex items-center justify-center gap-2 flex-wrap">
 								<Button
 									variant="outline"
 									size="sm"
@@ -81,6 +131,19 @@ function App() {
 									<SquareTerminal className="size-4" />
 									Open in Cursor
 								</Button>
+								{remoteInfo && (
+									<Button
+										variant="outline"
+										size="sm"
+										onClick={() => openRemoteInBrowser(remoteInfo)}
+										title="Ctrl+Shift+G"
+									>
+										<ExternalLink className="size-4" />
+										{remoteInfo.provider === 'github'
+											? 'Open on GitHub'
+											: 'Open on GitLab'}
+									</Button>
+								)}
 							</div>
 						</div>
 					</div>

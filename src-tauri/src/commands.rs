@@ -98,6 +98,61 @@ pub fn remove_repo(db: State<'_, Database>, id: i64) -> Result<(), String> {
     Ok(())
 }
 
+#[derive(Debug, Serialize, Clone)]
+pub struct RemoteInfo {
+    pub provider: String,
+    pub url: String,
+}
+
+#[tauri::command]
+pub fn get_remote_url(path: String) -> Result<Option<RemoteInfo>, String> {
+    let output = std::process::Command::new("git")
+        .args(["remote", "get-url", "origin"])
+        .current_dir(&path)
+        .output()
+        .map_err(|e| format!("Failed to run git: {}", e))?;
+
+    if !output.status.success() {
+        return Ok(None);
+    }
+
+    let remote_url = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+    if remote_url.is_empty() {
+        return Ok(None);
+    }
+
+    Ok(parse_remote_url(&remote_url))
+}
+
+fn parse_remote_url(remote_url: &str) -> Option<RemoteInfo> {
+    let url = remote_url.trim_end_matches(".git");
+
+    if url.contains("github.com") {
+        let web_url = if url.starts_with("git@") {
+            url.replace("git@github.com:", "https://github.com/")
+        } else {
+            url.to_string()
+        };
+        Some(RemoteInfo {
+            provider: "github".to_string(),
+            url: web_url,
+        })
+    } else if url.contains("gitlab.com") {
+        let web_url = if url.starts_with("git@") {
+            url.replace("git@gitlab.com:", "https://gitlab.com/")
+        } else {
+            url.to_string()
+        };
+        Some(RemoteInfo {
+            provider: "gitlab".to_string(),
+            url: web_url,
+        })
+    } else {
+        None
+    }
+}
+
 #[tauri::command]
 pub fn open_in_cursor(path: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]
