@@ -1,3 +1,14 @@
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+	AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import {Button} from '@/components/ui/button';
 import {ScrollArea} from '@/components/ui/scroll-area';
 import {
@@ -97,15 +108,42 @@ export function RepoSidebar({
 											<FolderGit2 className="size-4" />
 											<span>{repo.name}</span>
 										</SidebarMenuButton>
-										<SidebarMenuAction
-											showOnHover
-											onClick={event => {
-												event.stopPropagation();
-												handleRemoveRepo(repo.id, onReposChange);
-											}}
-										>
-											<Trash2 className="size-3.5" />
-										</SidebarMenuAction>
+										<AlertDialog>
+											<AlertDialogTrigger asChild>
+												<SidebarMenuAction
+													showOnHover
+													onClick={event => {
+														event.stopPropagation();
+													}}
+												>
+													<Trash2 className="size-3.5" />
+												</SidebarMenuAction>
+											</AlertDialogTrigger>
+											<AlertDialogContent>
+												<AlertDialogHeader>
+													<AlertDialogTitle>Remove repository</AlertDialogTitle>
+													<AlertDialogDescription>
+														Are you sure you want to remove{' '}
+														<span className="font-medium text-foreground">
+															{repo.name}
+														</span>{' '}
+														from the list? This will not delete any files on
+														disk.
+													</AlertDialogDescription>
+												</AlertDialogHeader>
+												<AlertDialogFooter>
+													<AlertDialogCancel>Cancel</AlertDialogCancel>
+													<AlertDialogAction
+														variant="destructive"
+														onClick={() =>
+															handleRemoveRepo(repo.id, onReposChange)
+														}
+													>
+														Remove
+													</AlertDialogAction>
+												</AlertDialogFooter>
+											</AlertDialogContent>
+										</AlertDialog>
 									</SidebarMenuItem>
 								))}
 							</SidebarMenu>
