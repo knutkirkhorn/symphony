@@ -40,7 +40,8 @@ function App() {
 	const [groups, setGroups] = useState<Group[]>([]);
 	const [selectedRepo, setSelectedRepo] = useState<Repo | null>(null);
 	const [remoteInfo, setRemoteInfo] = useState<RemoteInfo | null>(null);
-	const [activeRepoViewTab, setActiveRepoViewTab] = useState<RepoViewTab>('agent');
+	const [activeRepoViewTab, setActiveRepoViewTab] =
+		useState<RepoViewTab>('agent');
 	const [agents, setAgents] = useState<Agent[]>([]);
 	const [isAgentsLoading, setIsAgentsLoading] = useState(false);
 	const [agentsError, setAgentsError] = useState<string | null>(null);
