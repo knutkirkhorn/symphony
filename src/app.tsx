@@ -78,7 +78,7 @@ function parseAgentConversationLine(
 				record.message?.content
 					?.filter(content => content.type === 'text')
 					.map(content => content.text)
-					.filter((text): text is string => Boolean(text))
+					.filter(Boolean)
 					.join('\n') ?? '';
 			if (text) return {role: 'user', text};
 		}
@@ -88,7 +88,7 @@ function parseAgentConversationLine(
 				record.message?.content
 					?.filter(content => content.type === 'text')
 					.map(content => content.text)
-					.filter((text): text is string => Boolean(text))
+					.filter(Boolean)
 					.join('\n') ?? '';
 			if (text) return {role: 'assistant', text};
 		}
@@ -509,27 +509,30 @@ function App() {
 			},
 		);
 
-		const unlistenDonePromise = listen<AgentDonePayload>('repo-agent-done', event => {
-			const activeRunId = activeRunIdReference.current;
-			const activeAgentId = activeRunAgentIdReference.current;
-			if (!activeRunId || !activeAgentId) return;
-			if (
-				event.payload.runId !== activeRunId ||
-				event.payload.agentId !== activeAgentId
-			) {
-				return;
-			}
+		const unlistenDonePromise = listen<AgentDonePayload>(
+			'repo-agent-done',
+			event => {
+				const activeRunId = activeRunIdReference.current;
+				const activeAgentId = activeRunAgentIdReference.current;
+				if (!activeRunId || !activeAgentId) return;
+				if (
+					event.payload.runId !== activeRunId ||
+					event.payload.agentId !== activeAgentId
+				) {
+					return;
+				}
 
-			appendAgentMessage(activeAgentId, {
-				role: event.payload.success ? 'system' : 'error',
-				text: event.payload.success
-					? 'Agent run completed.'
-					: 'Agent run stopped or failed.',
-			});
-			setIsAgentRunning(false);
-			activeRunIdReference.current = null;
-			activeRunAgentIdReference.current = null;
-		});
+				appendAgentMessage(activeAgentId, {
+					role: event.payload.success ? 'system' : 'error',
+					text: event.payload.success
+						? 'Agent run completed.'
+						: 'Agent run stopped or failed.',
+				});
+				setIsAgentRunning(false);
+				activeRunIdReference.current = null;
+				activeRunAgentIdReference.current = null;
+			},
+		);
 
 		return () => {
 			void unlistenStdoutPromise.then(unlisten => {
@@ -620,7 +623,9 @@ function App() {
 	const selectedAgentMessages = selectedAgentId
 		? (agentMessagesById[selectedAgentId] ?? [])
 		: [];
-	const selectedAgentLogs = selectedAgentId ? (agentLogsById[selectedAgentId] ?? []) : [];
+	const selectedAgentLogs = selectedAgentId
+		? (agentLogsById[selectedAgentId] ?? [])
+		: [];
 
 	return (
 		<SidebarProvider>

@@ -221,9 +221,7 @@ export function RepoAgentsView({
 								<ScrollArea className="h-36">
 									<div className="space-y-1 p-3 font-mono text-xs">
 										{logs.length === 0 ? (
-											<p className="text-muted-foreground">
-												No logs yet.
-											</p>
+											<p className="text-muted-foreground">No logs yet.</p>
 										) : (
 											logs.map((line, index) => (
 												<p key={`${index}-${line.slice(0, 24)}`}>{line}</p>
