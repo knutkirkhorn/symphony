@@ -173,6 +173,22 @@ pub struct RemoteInfo {
     pub url: String,
 }
 
+#[derive(Debug, Serialize, Clone)]
+pub struct GitCommit {
+    pub hash: String,
+    pub short_hash: String,
+    pub author_name: String,
+    pub author_email: String,
+    pub author_date: String,
+    pub subject: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct GitCommitFileDiff {
+    pub path: String,
+    pub diff: String,
+}
+
 #[tauri::command]
 pub fn get_remote_url(path: String) -> Result<Option<RemoteInfo>, String> {
     let output = std::process::Command::new("git")
@@ -192,6 +208,71 @@ pub fn get_remote_url(path: String) -> Result<Option<RemoteInfo>, String> {
     }
 
     Ok(parse_remote_url(&remote_url))
+}
+
+#[tauri::command]
+pub fn list_git_history(path: String, limit: Option<u32>) -> Result<Vec<GitCommit>, String> {
+    let clamped_limit = limit.unwrap_or(50).clamp(1, 200);
+    let output = run_git_command(
+        &path,
+        &[
+            "log".to_string(),
+            "--max-count".to_string(),
+            clamped_limit.to_string(),
+            "--date=iso-strict".to_string(),
+            "--pretty=format:%H%x1f%h%x1f%an%x1f%ae%x1f%ad%x1f%s".to_string(),
+        ],
+    )?;
+
+    let commits = output
+        .lines()
+        .filter_map(|line| {
+            if line.trim().is_empty() {
+                return None;
+            }
+
+            let mut parts = line.splitn(6, '\u{1f}');
+            let hash = parts.next()?.to_string();
+            let short_hash = parts.next()?.to_string();
+            let author_name = parts.next()?.to_string();
+            let author_email = parts.next()?.to_string();
+            let author_date = parts.next()?.to_string();
+            let subject = parts.next()?.to_string();
+
+            Some(GitCommit {
+                hash,
+                short_hash,
+                author_name,
+                author_email,
+                author_date,
+                subject,
+            })
+        })
+        .collect();
+
+    Ok(commits)
+}
+
+#[tauri::command]
+pub fn get_commit_changes(path: String, commit: String) -> Result<Vec<GitCommitFileDiff>, String> {
+    let trimmed_commit = commit.trim();
+    if trimmed_commit.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let output = run_git_command(
+        &path,
+        &[
+            "show".to_string(),
+            "--format=".to_string(),
+            "--patch".to_string(),
+            "--no-color".to_string(),
+            "--find-renames".to_string(),
+            trimmed_commit.to_string(),
+        ],
+    )?;
+
+    Ok(parse_commit_file_diffs(&output))
 }
 
 fn parse_remote_url(remote_url: &str) -> Option<RemoteInfo> {
@@ -219,6 +300,78 @@ fn parse_remote_url(remote_url: &str) -> Option<RemoteInfo> {
         })
     } else {
         None
+    }
+}
+
+fn run_git_command(path: &str, args: &[String]) -> Result<String, String> {
+    let output = std::process::Command::new("git")
+        .args(args.iter().map(String::as_str))
+        .current_dir(path)
+        .output()
+        .map_err(|e| format!("Failed to run git: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let message = if !stderr.is_empty() {
+            stderr
+        } else if !stdout.is_empty() {
+            stdout
+        } else {
+            "Git command failed".to_string()
+        };
+        return Err(message);
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+fn parse_commit_file_diffs(raw_output: &str) -> Vec<GitCommitFileDiff> {
+    let mut diffs: Vec<GitCommitFileDiff> = Vec::new();
+    let mut current_path: Option<String> = None;
+    let mut current_lines: Vec<String> = Vec::new();
+
+    for line in raw_output.lines() {
+        if line.starts_with("diff --git ") {
+            if let Some(path) = current_path.take() {
+                diffs.push(GitCommitFileDiff {
+                    path,
+                    diff: current_lines.join("\n"),
+                });
+            }
+            current_path = Some(parse_path_from_diff_header(line));
+            current_lines.clear();
+            current_lines.push(line.to_string());
+            continue;
+        }
+
+        if current_path.is_some() {
+            current_lines.push(line.to_string());
+        }
+    }
+
+    if let Some(path) = current_path {
+        diffs.push(GitCommitFileDiff {
+            path,
+            diff: current_lines.join("\n"),
+        });
+    }
+
+    diffs
+}
+
+fn parse_path_from_diff_header(header_line: &str) -> String {
+    let parts: Vec<&str> = header_line.split_whitespace().collect();
+    if parts.len() < 4 {
+        return "Unknown file".to_string();
+    }
+
+    let left = parts[2].strip_prefix("a/").unwrap_or(parts[2]);
+    let right = parts[3].strip_prefix("b/").unwrap_or(parts[3]);
+    if right == "/dev/null" {
+        left.to_string()
+    } else {
+        right.to_string()
     }
 }
 

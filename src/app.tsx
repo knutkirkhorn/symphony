@@ -1,14 +1,15 @@
 /* eslint-disable unicorn/no-null */
 import {EmptyState} from '@/components/empty-state';
+import {GitHistoryView} from '@/components/git-history-view';
 import {RepoSidebar} from '@/components/repo-sidebar';
 import {Button} from '@/components/ui/button';
 import {SidebarInset, SidebarProvider} from '@/components/ui/sidebar';
 import {Toaster} from '@/components/ui/sonner';
-import type {Group, Repo} from '@/lib/types';
+import type {GitCommit, GitCommitFileDiff, Group, Repo} from '@/lib/types';
 import {invoke} from '@tauri-apps/api/core';
 import {openPath, openUrl} from '@tauri-apps/plugin-opener';
 import {ExternalLink, FolderOpen, SquareTerminal} from 'lucide-react';
-import {useCallback, useEffect, useState} from 'react';
+import {useCallback, useEffect, useRef, useState} from 'react';
 import {toast} from 'sonner';
 
 type RemoteInfo = {
@@ -29,6 +30,19 @@ function App() {
 	const [groups, setGroups] = useState<Group[]>([]);
 	const [selectedRepo, setSelectedRepo] = useState<Repo | null>(null);
 	const [remoteInfo, setRemoteInfo] = useState<RemoteInfo | null>(null);
+	const [historyCommits, setHistoryCommits] = useState<GitCommit[]>([]);
+	const [selectedCommitHash, setSelectedCommitHash] = useState<string | null>(
+		null,
+	);
+	const [selectedCommitDiffs, setSelectedCommitDiffs] = useState<
+		GitCommitFileDiff[]
+	>([]);
+	const [isHistoryLoading, setIsHistoryLoading] = useState(false);
+	const [isDiffLoading, setIsDiffLoading] = useState(false);
+	const [historyError, setHistoryError] = useState<string | null>(null);
+	const [diffError, setDiffError] = useState<string | null>(null);
+	const historyRequestIdReference = useRef(0);
+	const diffRequestIdReference = useRef(0);
 
 	const openSelectedRepoInExplorer = useCallback(async () => {
 		if (!selectedRepo) return;
@@ -92,6 +106,77 @@ function App() {
 		})();
 	}, [selectedRepo]);
 
+	useEffect(() => {
+		if (!selectedRepo) {
+			setHistoryCommits([]);
+			setSelectedCommitHash(null);
+			setHistoryError(null);
+			return;
+		}
+
+		historyRequestIdReference.current += 1;
+		const requestId = historyRequestIdReference.current;
+		setIsHistoryLoading(true);
+		setHistoryError(null);
+		setHistoryCommits([]);
+		setSelectedCommitHash(null);
+		setSelectedCommitDiffs([]);
+
+		(async () => {
+			try {
+				const commits = await invoke<GitCommit[]>('list_git_history', {
+					path: selectedRepo.path,
+					limit: 75,
+				});
+				if (requestId !== historyRequestIdReference.current) return;
+				setHistoryCommits(commits);
+				setSelectedCommitHash(commits[0]?.hash ?? null);
+			} catch (error) {
+				if (requestId !== historyRequestIdReference.current) return;
+				setHistoryError(String(error));
+			} finally {
+				if (requestId === historyRequestIdReference.current) {
+					setIsHistoryLoading(false);
+				}
+			}
+		})();
+	}, [selectedRepo]);
+
+	useEffect(() => {
+		if (!selectedRepo || !selectedCommitHash) {
+			setSelectedCommitDiffs([]);
+			setDiffError(null);
+			return;
+		}
+
+		diffRequestIdReference.current += 1;
+		const requestId = diffRequestIdReference.current;
+		setIsDiffLoading(true);
+		setDiffError(null);
+		setSelectedCommitDiffs([]);
+
+		(async () => {
+			try {
+				const changes = await invoke<GitCommitFileDiff[]>(
+					'get_commit_changes',
+					{
+						path: selectedRepo.path,
+						commit: selectedCommitHash,
+					},
+				);
+				if (requestId !== diffRequestIdReference.current) return;
+				setSelectedCommitDiffs(changes);
+			} catch (error) {
+				if (requestId !== diffRequestIdReference.current) return;
+				setDiffError(String(error));
+			} finally {
+				if (requestId === diffRequestIdReference.current) {
+					setIsDiffLoading(false);
+				}
+			}
+		})();
+	}, [selectedRepo, selectedCommitHash]);
+
 	// Keyboard shortcuts:
 	// - Ctrl+Shift+A: open selected repo in Cursor
 	// - Ctrl+Shift+F: show selected repo in Finder/Explorer
@@ -141,15 +226,17 @@ function App() {
 				{repos.length === 0 ? (
 					<EmptyState onReposChange={loadRepos} />
 				) : selectedRepo ? (
-					<div className="flex flex-1 items-center justify-center p-6">
-						<div className="text-center space-y-4">
-							<div className="space-y-2">
-								<h2 className="text-lg font-semibold">{selectedRepo.name}</h2>
-								<p className="text-sm text-muted-foreground">
+					<div className="flex min-h-0 flex-1 flex-col">
+						<div className="flex items-center justify-between border-b px-4 py-3">
+							<div className="min-w-0">
+								<h2 className="truncate text-lg font-semibold">
+									{selectedRepo.name}
+								</h2>
+								<p className="truncate text-sm text-muted-foreground">
 									{selectedRepo.path}
 								</p>
 							</div>
-							<div className="flex items-center justify-center gap-2 flex-wrap">
+							<div className="flex items-center gap-2 flex-wrap">
 								<Button
 									variant="outline"
 									size="sm"
@@ -183,6 +270,17 @@ function App() {
 								)}
 							</div>
 						</div>
+						<GitHistoryView
+							repo={selectedRepo}
+							commits={historyCommits}
+							selectedCommitHash={selectedCommitHash}
+							onSelectCommit={setSelectedCommitHash}
+							isHistoryLoading={isHistoryLoading}
+							historyError={historyError}
+							fileDiffs={selectedCommitDiffs}
+							isDiffLoading={isDiffLoading}
+							diffError={diffError}
+						/>
 					</div>
 				) : (
 					<div className="flex flex-1 items-center justify-center">
