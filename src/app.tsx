@@ -1,11 +1,13 @@
 /* eslint-disable unicorn/no-null */
 import {EmptyState} from '@/components/empty-state';
 import {GitHistoryView} from '@/components/git-history-view';
+import {RepoAgentsView} from '@/components/repo-agents-view';
 import {RepoSidebar} from '@/components/repo-sidebar';
 import {Button} from '@/components/ui/button';
 import {SidebarInset, SidebarProvider} from '@/components/ui/sidebar';
 import {Toaster} from '@/components/ui/sonner';
 import type {
+	Agent,
 	GitCommit,
 	GitCommitFileDiff,
 	Group,
@@ -23,6 +25,8 @@ type RemoteInfo = {
 	url: string;
 };
 
+type RepoViewTab = 'agent' | 'commit-log';
+
 async function openRemoteInBrowser(remoteInfo: RemoteInfo) {
 	try {
 		await openUrl(remoteInfo.url);
@@ -36,6 +40,11 @@ function App() {
 	const [groups, setGroups] = useState<Group[]>([]);
 	const [selectedRepo, setSelectedRepo] = useState<Repo | null>(null);
 	const [remoteInfo, setRemoteInfo] = useState<RemoteInfo | null>(null);
+	const [activeRepoViewTab, setActiveRepoViewTab] = useState<RepoViewTab>('agent');
+	const [agents, setAgents] = useState<Agent[]>([]);
+	const [isAgentsLoading, setIsAgentsLoading] = useState(false);
+	const [agentsError, setAgentsError] = useState<string | null>(null);
+	const [isCreatingAgent, setIsCreatingAgent] = useState(false);
 	const [historyCommits, setHistoryCommits] = useState<GitCommit[]>([]);
 	const [selectedCommitHash, setSelectedCommitHash] = useState<string | null>(
 		null,
@@ -176,6 +185,7 @@ function App() {
 	useEffect(() => {
 		if (!selectedRepo) {
 			setRemoteInfo(null);
+			setActiveRepoViewTab('agent');
 			return;
 		}
 
@@ -187,6 +197,31 @@ function App() {
 				setRemoteInfo(info);
 			} catch {
 				setRemoteInfo(null);
+			}
+		})();
+	}, [selectedRepo]);
+
+	useEffect(() => {
+		if (!selectedRepo) {
+			setAgents([]);
+			setAgentsError(null);
+			return;
+		}
+
+		setIsAgentsLoading(true);
+		setAgentsError(null);
+		setAgents([]);
+
+		(async () => {
+			try {
+				const result = await invoke<Agent[]>('list_agents', {
+					repoId: selectedRepo.id,
+				});
+				setAgents(result);
+			} catch (error) {
+				setAgentsError(String(error));
+			} finally {
+				setIsAgentsLoading(false);
 			}
 		})();
 	}, [selectedRepo]);
@@ -297,6 +332,26 @@ function App() {
 		};
 	}, [openSelectedRepoInCursor, openSelectedRepoInExplorer, remoteInfo]);
 
+	const createAgent = useCallback(
+		async (name: string) => {
+			if (!selectedRepo) return;
+			setIsCreatingAgent(true);
+			try {
+				const createdAgent = await invoke<Agent>('create_agent', {
+					repoId: selectedRepo.id,
+					name,
+				});
+				setAgents(previous => [createdAgent, ...previous]);
+				toast.success(`Created agent "${createdAgent.name}"`);
+			} catch (error) {
+				toast.error(String(error));
+			} finally {
+				setIsCreatingAgent(false);
+			}
+		},
+		[selectedRepo],
+	);
+
 	return (
 		<SidebarProvider>
 			<RepoSidebar
@@ -359,17 +414,53 @@ function App() {
 								)}
 							</div>
 						</div>
-						<GitHistoryView
-							repo={selectedRepo}
-							commits={historyCommits}
-							selectedCommitHash={selectedCommitHash}
-							onSelectCommit={setSelectedCommitHash}
-							isHistoryLoading={isHistoryLoading}
-							historyError={historyError}
-							fileDiffs={selectedCommitDiffs}
-							isDiffLoading={isDiffLoading}
-							diffError={diffError}
-						/>
+						<div className="border-b px-4">
+							<div className="flex items-center gap-2 py-2">
+								<Button
+									variant={
+										activeRepoViewTab === 'agent' ? 'secondary' : 'ghost'
+									}
+									size="sm"
+									onClick={() => {
+										setActiveRepoViewTab('agent');
+									}}
+								>
+									Agent
+								</Button>
+								<Button
+									variant={
+										activeRepoViewTab === 'commit-log' ? 'secondary' : 'ghost'
+									}
+									size="sm"
+									onClick={() => {
+										setActiveRepoViewTab('commit-log');
+									}}
+								>
+									Commit Log
+								</Button>
+							</div>
+						</div>
+						{activeRepoViewTab === 'agent' ? (
+							<RepoAgentsView
+								agents={agents}
+								isLoading={isAgentsLoading}
+								error={agentsError}
+								isCreating={isCreatingAgent}
+								onCreateAgent={createAgent}
+							/>
+						) : (
+							<GitHistoryView
+								repo={selectedRepo}
+								commits={historyCommits}
+								selectedCommitHash={selectedCommitHash}
+								onSelectCommit={setSelectedCommitHash}
+								isHistoryLoading={isHistoryLoading}
+								historyError={historyError}
+								fileDiffs={selectedCommitDiffs}
+								isDiffLoading={isDiffLoading}
+								diffError={diffError}
+							/>
+						)}
 					</div>
 				) : (
 					<div className="flex flex-1 items-center justify-center">

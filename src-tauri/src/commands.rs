@@ -21,6 +21,14 @@ pub struct Group {
     pub created_at: String,
 }
 
+#[derive(Debug, Serialize, Clone)]
+pub struct Agent {
+    pub id: i64,
+    pub repo_id: i64,
+    pub name: String,
+    pub created_at: String,
+}
+
 #[tauri::command]
 pub fn list_repos(db: State<'_, Database>) -> Result<Vec<Repo>, String> {
     let conn = db.conn.lock().map_err(|e| e.to_string())?;
@@ -106,9 +114,73 @@ pub fn clone_repo(
 #[tauri::command]
 pub fn remove_repo(db: State<'_, Database>, id: i64) -> Result<(), String> {
     let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    conn.execute("DELETE FROM agents WHERE repo_id = ?1", rusqlite::params![id])
+        .map_err(|e| e.to_string())?;
     conn.execute("DELETE FROM repos WHERE id = ?1", rusqlite::params![id])
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[tauri::command]
+pub fn list_agents(db: State<'_, Database>, repo_id: i64) -> Result<Vec<Agent>, String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, repo_id, name, created_at
+             FROM agents
+             WHERE repo_id = ?1
+             ORDER BY created_at DESC, id DESC",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let agents = stmt
+        .query_map(rusqlite::params![repo_id], |row| {
+            Ok(Agent {
+                id: row.get(0)?,
+                repo_id: row.get(1)?,
+                name: row.get(2)?,
+                created_at: row.get(3)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    Ok(agents)
+}
+
+#[tauri::command]
+pub fn create_agent(db: State<'_, Database>, repo_id: i64, name: String) -> Result<Agent, String> {
+    let trimmed_name = name.trim();
+    if trimmed_name.is_empty() {
+        return Err("Agent name is required".to_string());
+    }
+
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+
+    conn.execute(
+        "INSERT INTO agents (repo_id, name) VALUES (?1, ?2)",
+        rusqlite::params![repo_id, trimmed_name],
+    )
+    .map_err(|e| e.to_string())?;
+
+    let id = conn.last_insert_rowid();
+    let mut stmt = conn
+        .prepare("SELECT id, repo_id, name, created_at FROM agents WHERE id = ?1")
+        .map_err(|e| e.to_string())?;
+
+    let agent = stmt
+        .query_row(rusqlite::params![id], |row| {
+            Ok(Agent {
+                id: row.get(0)?,
+                repo_id: row.get(1)?,
+                name: row.get(2)?,
+                created_at: row.get(3)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+
+    Ok(agent)
 }
 
 fn validate_git_repo(repo_path: &Path) -> Result<String, String> {

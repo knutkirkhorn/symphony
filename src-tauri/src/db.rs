@@ -34,6 +34,14 @@ impl Database {
                 group_id INTEGER,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE SET NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS agents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                repo_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (repo_id) REFERENCES repos(id) ON DELETE CASCADE
             );",
         )?;
 

@@ -35,3 +35,10 @@ export type GitCommitFileDiff = {
 	path: string;
 	diff: string;
 };
+
+export type Agent = {
+	id: number;
+	repo_id: number;
+	name: string;
+	created_at: string;
+};

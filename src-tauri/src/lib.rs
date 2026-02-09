@@ -2,9 +2,9 @@ mod commands;
 mod db;
 
 use commands::{
-    add_repo, clone_repo, create_group, delete_group, get_commit_changes, get_remote_url,
-    get_repo_sync_status, list_git_history, list_groups, list_repos, move_repo_to_group,
-    open_in_cursor, pull_repo, remove_repo, rename_group,
+    add_repo, clone_repo, create_agent, create_group, delete_group, get_commit_changes,
+    get_remote_url, get_repo_sync_status, list_agents, list_git_history, list_groups, list_repos,
+    move_repo_to_group, open_in_cursor, pull_repo, remove_repo, rename_group,
 };
 use db::Database;
 
@@ -27,6 +27,8 @@ pub fn run() {
             pull_repo,
             list_git_history,
             get_commit_changes,
+            list_agents,
+            create_agent,
             list_groups,
             create_group,
             rename_group,
