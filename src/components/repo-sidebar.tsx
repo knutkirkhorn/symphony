@@ -298,6 +298,7 @@ function GroupSection({
 	onRepoSelect,
 	onReposChange,
 	onGroupsChange,
+	onAddRepo,
 	onPointerDragStart,
 }: {
 	group: Group;
@@ -308,6 +309,7 @@ function GroupSection({
 	onRepoSelect: (repo: Repo) => void;
 	onReposChange: () => void;
 	onGroupsChange: () => void;
+	onAddRepo: () => void;
 	onPointerDragStart: (event: React.PointerEvent, repo: Repo) => void;
 }) {
 	const [isOpen, setIsOpen] = useState(true);
@@ -394,6 +396,10 @@ function GroupSection({
 								</Button>
 							</DropdownMenuTrigger>
 							<DropdownMenuContent align="end" side="right">
+								<DropdownMenuItem onClick={onAddRepo}>
+									<Plus className="size-4" />
+									Add repository
+								</DropdownMenuItem>
 								<DropdownMenuItem
 									onClick={() => {
 										setRenameValue(group.name);
@@ -728,6 +734,7 @@ export function RepoSidebar({
 							onRepoSelect={onRepoSelect}
 							onReposChange={onReposChange}
 							onGroupsChange={onGroupsChange}
+							onAddRepo={() => setIsAddRepoOpen(true)}
 							onPointerDragStart={handlePointerDragStart}
 						/>
 					))}
