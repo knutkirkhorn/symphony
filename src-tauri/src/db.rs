@@ -20,13 +20,35 @@ impl Database {
 
         // Create tables
         conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS repos (
+            "CREATE TABLE IF NOT EXISTS groups (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS repos (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
                 path TEXT NOT NULL UNIQUE,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                group_id INTEGER,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE SET NULL
             );",
         )?;
+
+        // Migration: add group_id column if it doesn't exist (for existing databases)
+        let has_group_id: bool = conn
+            .prepare("SELECT COUNT(*) FROM pragma_table_info('repos') WHERE name='group_id'")
+            .and_then(|mut stmt| stmt.query_row([], |row| row.get::<_, i64>(0)))
+            .map(|count| count > 0)
+            .unwrap_or(false);
+
+        if !has_group_id {
+            conn.execute_batch(
+                "ALTER TABLE repos ADD COLUMN group_id INTEGER REFERENCES groups(id) ON DELETE SET NULL;",
+            )?;
+        }
 
         Ok(Self {
             conn: Mutex::new(conn),

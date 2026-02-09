@@ -8,6 +8,15 @@ pub struct Repo {
     pub id: i64,
     pub name: String,
     pub path: String,
+    pub group_id: Option<i64>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct Group {
+    pub id: i64,
+    pub name: String,
+    pub sort_order: i64,
     pub created_at: String,
 }
 
@@ -15,7 +24,7 @@ pub struct Repo {
 pub fn list_repos(db: State<'_, Database>) -> Result<Vec<Repo>, String> {
     let conn = db.conn.lock().map_err(|e| e.to_string())?;
     let mut stmt = conn
-        .prepare("SELECT id, name, path, created_at FROM repos ORDER BY name ASC")
+        .prepare("SELECT id, name, path, group_id, created_at FROM repos ORDER BY name ASC")
         .map_err(|e| e.to_string())?;
 
     let repos = stmt
@@ -24,7 +33,8 @@ pub fn list_repos(db: State<'_, Database>) -> Result<Vec<Repo>, String> {
                 id: row.get(0)?,
                 name: row.get(1)?,
                 path: row.get(2)?,
-                created_at: row.get(3)?,
+                group_id: row.get(3)?,
+                created_at: row.get(4)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -73,7 +83,7 @@ pub fn add_repo(db: State<'_, Database>, path: String) -> Result<Repo, String> {
     let id = conn.last_insert_rowid();
 
     let mut stmt = conn
-        .prepare("SELECT id, name, path, created_at FROM repos WHERE id = ?1")
+        .prepare("SELECT id, name, path, group_id, created_at FROM repos WHERE id = ?1")
         .map_err(|e| e.to_string())?;
 
     let repo = stmt
@@ -82,7 +92,8 @@ pub fn add_repo(db: State<'_, Database>, path: String) -> Result<Repo, String> {
                 id: row.get(0)?,
                 name: row.get(1)?,
                 path: row.get(2)?,
-                created_at: row.get(3)?,
+                group_id: row.get(3)?,
+                created_at: row.get(4)?,
             })
         })
         .map_err(|e| e.to_string())?;
@@ -151,6 +162,100 @@ fn parse_remote_url(remote_url: &str) -> Option<RemoteInfo> {
     } else {
         None
     }
+}
+
+#[tauri::command]
+pub fn list_groups(db: State<'_, Database>) -> Result<Vec<Group>, String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let mut stmt = conn
+        .prepare("SELECT id, name, sort_order, created_at FROM groups ORDER BY sort_order ASC, name ASC")
+        .map_err(|e| e.to_string())?;
+
+    let groups = stmt
+        .query_map([], |row| {
+            Ok(Group {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                sort_order: row.get(2)?,
+                created_at: row.get(3)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    Ok(groups)
+}
+
+#[tauri::command]
+pub fn create_group(db: State<'_, Database>, name: String) -> Result<Group, String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+
+    // Get the next sort_order
+    let max_order: i64 = conn
+        .query_row("SELECT COALESCE(MAX(sort_order), 0) FROM groups", [], |row| row.get(0))
+        .map_err(|e| e.to_string())?;
+
+    conn.execute(
+        "INSERT INTO groups (name, sort_order) VALUES (?1, ?2)",
+        rusqlite::params![name, max_order + 1],
+    )
+    .map_err(|e| e.to_string())?;
+
+    let id = conn.last_insert_rowid();
+
+    let mut stmt = conn
+        .prepare("SELECT id, name, sort_order, created_at FROM groups WHERE id = ?1")
+        .map_err(|e| e.to_string())?;
+
+    let group = stmt
+        .query_row(rusqlite::params![id], |row| {
+            Ok(Group {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                sort_order: row.get(2)?,
+                created_at: row.get(3)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+
+    Ok(group)
+}
+
+#[tauri::command]
+pub fn rename_group(db: State<'_, Database>, id: i64, name: String) -> Result<(), String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    conn.execute(
+        "UPDATE groups SET name = ?1 WHERE id = ?2",
+        rusqlite::params![name, id],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn delete_group(db: State<'_, Database>, id: i64) -> Result<(), String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    // Unassign repos from this group first (ON DELETE SET NULL handles this, but be explicit)
+    conn.execute(
+        "UPDATE repos SET group_id = NULL WHERE group_id = ?1",
+        rusqlite::params![id],
+    )
+    .map_err(|e| e.to_string())?;
+    conn.execute("DELETE FROM groups WHERE id = ?1", rusqlite::params![id])
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn move_repo_to_group(db: State<'_, Database>, repo_id: i64, group_id: Option<i64>) -> Result<(), String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    conn.execute(
+        "UPDATE repos SET group_id = ?1 WHERE id = ?2",
+        rusqlite::params![group_id, repo_id],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]

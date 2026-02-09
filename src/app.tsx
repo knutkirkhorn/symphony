@@ -4,7 +4,7 @@ import {RepoSidebar} from '@/components/repo-sidebar';
 import {Button} from '@/components/ui/button';
 import {SidebarInset, SidebarProvider} from '@/components/ui/sidebar';
 import {Toaster} from '@/components/ui/sonner';
-import type {Repo} from '@/lib/types';
+import type {Group, Repo} from '@/lib/types';
 import {invoke} from '@tauri-apps/api/core';
 import {openPath, openUrl} from '@tauri-apps/plugin-opener';
 import {ExternalLink, FolderOpen, SquareTerminal} from 'lucide-react';
@@ -26,6 +26,7 @@ async function openRemoteInBrowser(remoteInfo: RemoteInfo) {
 
 function App() {
 	const [repos, setRepos] = useState<Repo[]>([]);
+	const [groups, setGroups] = useState<Group[]>([]);
 	const [selectedRepo, setSelectedRepo] = useState<Repo | null>(null);
 	const [remoteInfo, setRemoteInfo] = useState<RemoteInfo | null>(null);
 
@@ -38,9 +39,19 @@ function App() {
 		}
 	}, []);
 
+	const loadGroups = useCallback(async () => {
+		try {
+			const result = await invoke<Group[]>('list_groups');
+			setGroups(result);
+		} catch (error) {
+			console.error('Failed to load groups:', error);
+		}
+	}, []);
+
 	useEffect(() => {
 		loadRepos();
-	}, [loadRepos]);
+		loadGroups();
+	}, [loadRepos, loadGroups]);
 
 	// Fetch remote info whenever selectedRepo changes
 	useEffect(() => {
@@ -82,9 +93,11 @@ function App() {
 		<SidebarProvider>
 			<RepoSidebar
 				repos={repos}
+				groups={groups}
 				selectedRepoId={selectedRepo?.id ?? null}
 				onRepoSelect={setSelectedRepo}
 				onReposChange={loadRepos}
+				onGroupsChange={loadGroups}
 			/>
 			<SidebarInset>
 				{repos.length === 0 ? (
