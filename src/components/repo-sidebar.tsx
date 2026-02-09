@@ -334,6 +334,7 @@ function GroupSection({
 }) {
 	const [isOpen, setIsOpen] = useState(true);
 	const [isRenaming, setIsRenaming] = useState(false);
+	const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
 	const [renameValue, setRenameValue] = useState(group.name);
 
 	const {isDragOver, handlers: dropHandlers} = useDropZone(
@@ -426,7 +427,7 @@ function GroupSection({
 								</DropdownMenuItem>
 								<DropdownMenuItem
 									variant="destructive"
-									onClick={handleDeleteGroup}
+									onClick={() => setIsDeleteDialogOpen(true)}
 								>
 									<Trash2 className="size-4" />
 									Delete group
@@ -493,6 +494,25 @@ function GroupSection({
 					</form>
 				</DialogContent>
 			</Dialog>
+
+			<AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+				<AlertDialogContent>
+					<AlertDialogHeader>
+						<AlertDialogTitle>Delete group</AlertDialogTitle>
+						<AlertDialogDescription>
+							Are you sure you want to delete{' '}
+							<span className="font-medium text-foreground">{group.name}</span>?
+							Repositories in this group will be moved to ungrouped.
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel>Cancel</AlertDialogCancel>
+						<AlertDialogAction variant="destructive" onClick={handleDeleteGroup}>
+							Delete
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
 		</>
 	);
 }
