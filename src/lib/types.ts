@@ -42,3 +42,9 @@ export type Agent = {
 	name: string;
 	created_at: string;
 };
+
+export type AgentConversationEntry = {
+	id: string;
+	role: 'user' | 'assistant' | 'tool' | 'system' | 'error';
+	text: string;
+};

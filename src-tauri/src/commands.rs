@@ -1,8 +1,11 @@
 use crate::db::Database;
 use rusqlite::Connection;
 use serde::Serialize;
+use std::io::{BufRead, BufReader};
 use std::path::Path;
-use tauri::State;
+use std::process::Stdio;
+use std::sync::Mutex;
+use tauri::{AppHandle, Emitter, Manager, State};
 
 #[derive(Debug, Serialize, Clone)]
 pub struct Repo {
@@ -27,6 +30,26 @@ pub struct Agent {
     pub repo_id: i64,
     pub name: String,
     pub created_at: String,
+}
+
+pub struct AgentRuntimeState {
+    pub pid: Mutex<Option<u32>>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentStreamPayload {
+    pub run_id: String,
+    pub agent_id: i64,
+    pub line: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentDonePayload {
+    pub run_id: String,
+    pub agent_id: i64,
+    pub success: bool,
 }
 
 #[tauri::command]
@@ -654,6 +677,199 @@ pub fn move_repo_to_group(
     )
     .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[tauri::command]
+pub fn run_repo_agent(
+    app: AppHandle,
+    state: State<'_, AgentRuntimeState>,
+    repo_path: String,
+    prompt: String,
+    agent_id: i64,
+    run_id: String,
+    force_approve: Option<bool>,
+) -> Result<(), String> {
+    let trimmed_prompt = prompt.trim();
+    if trimmed_prompt.is_empty() {
+        return Err("Prompt is required".to_string());
+    }
+
+    {
+        let pid_guard = state.pid.lock().map_err(|e| e.to_string())?;
+        if pid_guard.is_some() {
+            return Err("An agent is already running".to_string());
+        }
+    }
+
+    let repo = Path::new(&repo_path);
+    if !repo.exists() || !repo.is_dir() {
+        return Err("Repository path does not exist".to_string());
+    }
+
+    let mut process = create_cursor_agent_command(trimmed_prompt, force_approve.unwrap_or(true))?;
+    process.current_dir(repo);
+    process.stdin(Stdio::null());
+    process.stdout(Stdio::piped());
+    process.stderr(Stdio::piped());
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        process.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+
+    let mut child = process
+        .spawn()
+        .map_err(|e| format!("Failed to start Cursor agent: {}", e))?;
+
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or("Failed to capture Cursor agent stdout".to_string())?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or("Failed to capture Cursor agent stderr".to_string())?;
+
+    {
+        let mut pid_guard = state.pid.lock().map_err(|e| e.to_string())?;
+        *pid_guard = Some(child.id());
+    }
+
+    let app_for_worker = app.clone();
+    std::thread::spawn(move || {
+        let run_id_for_stderr = run_id.clone();
+        let app_for_stderr = app_for_worker.clone();
+        let stderr_handle = std::thread::spawn(move || {
+            let reader = BufReader::new(stderr);
+            for line in reader.lines().map_while(Result::ok) {
+                let _ = app_for_stderr.emit(
+                    "repo-agent-stderr",
+                    AgentStreamPayload {
+                        run_id: run_id_for_stderr.clone(),
+                        agent_id,
+                        line,
+                    },
+                );
+            }
+        });
+
+        let reader = BufReader::new(stdout);
+        for line in reader.lines().map_while(Result::ok) {
+            let _ = app_for_worker.emit(
+                "repo-agent-stdout",
+                AgentStreamPayload {
+                    run_id: run_id.clone(),
+                    agent_id,
+                    line,
+                },
+            );
+        }
+
+        let _ = stderr_handle.join();
+        let success = child.wait().map(|status| status.success()).unwrap_or(false);
+
+        if let Ok(mut pid_guard) = app_for_worker.state::<AgentRuntimeState>().pid.lock() {
+            *pid_guard = None;
+        }
+
+        let _ = app_for_worker.emit(
+            "repo-agent-done",
+            AgentDonePayload {
+                run_id,
+                agent_id,
+                success,
+            },
+        );
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn stop_repo_agent(
+    app: AppHandle,
+    state: State<'_, AgentRuntimeState>,
+) -> Result<(), String> {
+    let pid = {
+        let guard = state.pid.lock().map_err(|e| e.to_string())?;
+        *guard
+    };
+
+    let Some(pid) = pid else {
+        return Err("No agent process is currently running".to_string());
+    };
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        let output = std::process::Command::new("taskkill")
+            .args(["/F", "/T", "/PID", &pid.to_string()])
+            .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
+            .output()
+            .map_err(|e| format!("Failed to run taskkill: {}", e))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            return Err(if stderr.is_empty() {
+                "Failed to stop running agent".to_string()
+            } else {
+                stderr
+            });
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = std::process::Command::new("kill")
+            .args(["-9", &pid.to_string()])
+            .output();
+    }
+
+    {
+        let mut guard = state.pid.lock().map_err(|e| e.to_string())?;
+        *guard = None;
+    }
+
+    let _ = app.emit("repo-agent-force-stop", true);
+    Ok(())
+}
+
+fn create_cursor_agent_command(
+    prompt: &str,
+    force_approve: bool,
+) -> Result<std::process::Command, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let local_app_data =
+            std::env::var("LOCALAPPDATA").map_err(|_| "LOCALAPPDATA env var not found")?;
+        let agent_path = Path::new(&local_app_data)
+            .join("cursor-agent")
+            .join("agent.CMD");
+        if !agent_path.exists() {
+            return Err(format!("agent.CMD not found at {}", agent_path.display()));
+        }
+
+        let mut command = std::process::Command::new("cmd");
+        command.args(["/C", agent_path.to_string_lossy().as_ref()]);
+        command.arg(prompt);
+        command.args(["--output-format", "stream-json", "--print"]);
+        if force_approve {
+            command.arg("--force");
+        }
+        return Ok(command);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let mut command = std::process::Command::new("cursor-agent");
+        command.arg(prompt);
+        command.args(["--output-format", "stream-json", "--print"]);
+        if force_approve {
+            command.arg("--force");
+        }
+        Ok(command)
+    }
 }
 
 #[tauri::command]

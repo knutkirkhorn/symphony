@@ -8,6 +8,7 @@ import {SidebarInset, SidebarProvider} from '@/components/ui/sidebar';
 import {Toaster} from '@/components/ui/sonner';
 import type {
 	Agent,
+	AgentConversationEntry,
 	GitCommit,
 	GitCommitFileDiff,
 	Group,
@@ -15,6 +16,7 @@ import type {
 	RepoSyncStatus,
 } from '@/lib/types';
 import {invoke} from '@tauri-apps/api/core';
+import {listen} from '@tauri-apps/api/event';
 import {openPath, openUrl} from '@tauri-apps/plugin-opener';
 import {ExternalLink, FolderOpen, SquareTerminal} from 'lucide-react';
 import {useCallback, useEffect, useRef, useState} from 'react';
@@ -26,6 +28,93 @@ type RemoteInfo = {
 };
 
 type RepoViewTab = 'agent' | 'commit-log';
+
+type AgentStreamPayload = {
+	runId: string;
+	agentId: number;
+	line: string;
+};
+
+type AgentDonePayload = {
+	runId: string;
+	agentId: number;
+	success: boolean;
+};
+
+function randomRunId() {
+	if ('randomUUID' in crypto) return crypto.randomUUID();
+	return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function parseAgentConversationLine(
+	rawLine: string,
+): Omit<AgentConversationEntry, 'id'> | null {
+	const line = rawLine.trim();
+	if (!line) return null;
+
+	try {
+		const data: unknown = JSON.parse(line);
+		if (!data || typeof data !== 'object') {
+			return {
+				role: 'system',
+				text: line,
+			};
+		}
+
+		const record = data as {
+			type?: string;
+			subtype?: string;
+			message?: {content?: Array<{type?: string; text?: string}>};
+			tool_call?: {
+				shellToolCall?: {args?: {command?: string}};
+				editToolCall?: {args?: {path?: string}};
+			};
+			result?: string;
+			is_error?: boolean;
+		};
+
+		if (record.type === 'user') {
+			const text =
+				record.message?.content
+					?.filter(content => content.type === 'text')
+					.map(content => content.text)
+					.filter((text): text is string => Boolean(text))
+					.join('\n') ?? '';
+			if (text) return {role: 'user', text};
+		}
+
+		if (record.type === 'assistant') {
+			const text =
+				record.message?.content
+					?.filter(content => content.type === 'text')
+					.map(content => content.text)
+					.filter((text): text is string => Boolean(text))
+					.join('\n') ?? '';
+			if (text) return {role: 'assistant', text};
+		}
+
+		if (record.type === 'tool_call' && record.subtype === 'started') {
+			const command = record.tool_call?.shellToolCall?.args?.command;
+			const path = record.tool_call?.editToolCall?.args?.path;
+			if (command) return {role: 'tool', text: `Running: ${command}`};
+			if (path) return {role: 'tool', text: `Editing: ${path}`};
+			return {role: 'tool', text: 'Tool call started'};
+		}
+
+		if (record.type === 'tool_call' && record.subtype === 'completed') {
+			return {role: 'tool', text: 'Tool call completed'};
+		}
+
+		if (record.type === 'result') {
+			const text = record.result?.trim() || 'Agent finished';
+			return {role: record.is_error ? 'error' : 'system', text};
+		}
+
+		return {role: 'system', text: line};
+	} catch {
+		return {role: 'system', text: line};
+	}
+}
 
 async function openRemoteInBrowser(remoteInfo: RemoteInfo) {
 	try {
@@ -46,6 +135,15 @@ function App() {
 	const [isAgentsLoading, setIsAgentsLoading] = useState(false);
 	const [agentsError, setAgentsError] = useState<string | null>(null);
 	const [isCreatingAgent, setIsCreatingAgent] = useState(false);
+	const [selectedAgentId, setSelectedAgentId] = useState<number | null>(null);
+	const [agentPrompt, setAgentPrompt] = useState('');
+	const [isAgentRunning, setIsAgentRunning] = useState(false);
+	const [agentMessagesById, setAgentMessagesById] = useState<
+		Record<number, AgentConversationEntry[]>
+	>({});
+	const [agentLogsById, setAgentLogsById] = useState<Record<number, string[]>>(
+		{},
+	);
 	const [historyCommits, setHistoryCommits] = useState<GitCommit[]>([]);
 	const [selectedCommitHash, setSelectedCommitHash] = useState<string | null>(
 		null,
@@ -63,6 +161,8 @@ function App() {
 	const [isCheckingRepoUpdates, setIsCheckingRepoUpdates] = useState(false);
 	const historyRequestIdReference = useRef(0);
 	const diffRequestIdReference = useRef(0);
+	const activeRunIdReference = useRef<string | null>(null);
+	const activeRunAgentIdReference = useRef<number | null>(null);
 
 	const openSelectedRepoInExplorer = useCallback(async () => {
 		if (!selectedRepo) return;
@@ -173,6 +273,29 @@ function App() {
 		[checkRepoUpdates, selectedRepo],
 	);
 
+	const appendAgentMessage = useCallback(
+		(agentId: number, message: Omit<AgentConversationEntry, 'id'>) => {
+			setAgentMessagesById(previous => ({
+				...previous,
+				[agentId]: [
+					...(previous[agentId] ?? []),
+					{
+						id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+						...message,
+					},
+				],
+			}));
+		},
+		[],
+	);
+
+	const appendAgentLog = useCallback((agentId: number, line: string) => {
+		setAgentLogsById(previous => ({
+			...previous,
+			[agentId]: [...(previous[agentId] ?? []), line],
+		}));
+	}, []);
+
 	useEffect(() => {
 		loadRepos();
 		loadGroups();
@@ -187,6 +310,13 @@ function App() {
 		if (!selectedRepo) {
 			setRemoteInfo(null);
 			setActiveRepoViewTab('agent');
+			setSelectedAgentId(null);
+			setAgentPrompt('');
+			setIsAgentRunning(false);
+			setAgentMessagesById({});
+			setAgentLogsById({});
+			activeRunIdReference.current = null;
+			activeRunAgentIdReference.current = null;
 			return;
 		}
 
@@ -219,6 +349,11 @@ function App() {
 					repoId: selectedRepo.id,
 				});
 				setAgents(result);
+				setSelectedAgentId(previous =>
+					previous && result.some(agent => agent.id === previous)
+						? previous
+						: (result[0]?.id ?? null),
+				);
 			} catch (error) {
 				setAgentsError(String(error));
 			} finally {
@@ -333,6 +468,82 @@ function App() {
 		};
 	}, [openSelectedRepoInCursor, openSelectedRepoInExplorer, remoteInfo]);
 
+	useEffect(() => {
+		const unlistenStdoutPromise = listen<AgentStreamPayload>(
+			'repo-agent-stdout',
+			event => {
+				const activeRunId = activeRunIdReference.current;
+				const activeAgentId = activeRunAgentIdReference.current;
+				if (!activeRunId || !activeAgentId) return;
+				if (
+					event.payload.runId !== activeRunId ||
+					event.payload.agentId !== activeAgentId
+				) {
+					return;
+				}
+
+				appendAgentLog(activeAgentId, event.payload.line);
+				const parsed = parseAgentConversationLine(event.payload.line);
+				if (parsed) appendAgentMessage(activeAgentId, parsed);
+			},
+		);
+
+		const unlistenStderrPromise = listen<AgentStreamPayload>(
+			'repo-agent-stderr',
+			event => {
+				const activeRunId = activeRunIdReference.current;
+				const activeAgentId = activeRunAgentIdReference.current;
+				if (!activeRunId || !activeAgentId) return;
+				if (
+					event.payload.runId !== activeRunId ||
+					event.payload.agentId !== activeAgentId
+				) {
+					return;
+				}
+
+				appendAgentLog(activeAgentId, `stderr: ${event.payload.line}`);
+				appendAgentMessage(activeAgentId, {
+					role: 'error',
+					text: event.payload.line,
+				});
+			},
+		);
+
+		const unlistenDonePromise = listen<AgentDonePayload>('repo-agent-done', event => {
+			const activeRunId = activeRunIdReference.current;
+			const activeAgentId = activeRunAgentIdReference.current;
+			if (!activeRunId || !activeAgentId) return;
+			if (
+				event.payload.runId !== activeRunId ||
+				event.payload.agentId !== activeAgentId
+			) {
+				return;
+			}
+
+			appendAgentMessage(activeAgentId, {
+				role: event.payload.success ? 'system' : 'error',
+				text: event.payload.success
+					? 'Agent run completed.'
+					: 'Agent run stopped or failed.',
+			});
+			setIsAgentRunning(false);
+			activeRunIdReference.current = null;
+			activeRunAgentIdReference.current = null;
+		});
+
+		return () => {
+			void unlistenStdoutPromise.then(unlisten => {
+				unlisten();
+			});
+			void unlistenStderrPromise.then(unlisten => {
+				unlisten();
+			});
+			void unlistenDonePromise.then(unlisten => {
+				unlisten();
+			});
+		};
+	}, [appendAgentLog, appendAgentMessage]);
+
 	const createAgent = useCallback(
 		async (name: string) => {
 			if (!selectedRepo) return;
@@ -343,6 +554,7 @@ function App() {
 					name,
 				});
 				setAgents(previous => [createdAgent, ...previous]);
+				setSelectedAgentId(createdAgent.id);
 				toast.success(`Created agent "${createdAgent.name}"`);
 			} catch (error) {
 				toast.error(String(error));
@@ -352,6 +564,63 @@ function App() {
 		},
 		[selectedRepo],
 	);
+
+	const runPromptOnAgent = useCallback(async () => {
+		if (!selectedRepo || !selectedAgentId) return;
+		const trimmedPrompt = agentPrompt.trim();
+		if (!trimmedPrompt || isAgentRunning) return;
+
+		const runId = randomRunId();
+		activeRunIdReference.current = runId;
+		activeRunAgentIdReference.current = selectedAgentId;
+		setIsAgentRunning(true);
+
+		appendAgentMessage(selectedAgentId, {
+			role: 'user',
+			text: trimmedPrompt,
+		});
+		setAgentPrompt('');
+
+		try {
+			await invoke('run_repo_agent', {
+				repoPath: selectedRepo.path,
+				prompt: trimmedPrompt,
+				agentId: selectedAgentId,
+				runId,
+				forceApprove: true,
+			});
+		} catch (error) {
+			appendAgentMessage(selectedAgentId, {
+				role: 'error',
+				text: String(error),
+			});
+			setIsAgentRunning(false);
+			activeRunIdReference.current = null;
+			activeRunAgentIdReference.current = null;
+		}
+	}, [
+		selectedRepo,
+		selectedAgentId,
+		agentPrompt,
+		isAgentRunning,
+		appendAgentMessage,
+	]);
+
+	const stopAgentRun = useCallback(async () => {
+		try {
+			await invoke('stop_repo_agent');
+			setIsAgentRunning(false);
+			activeRunIdReference.current = null;
+			activeRunAgentIdReference.current = null;
+		} catch (error) {
+			toast.error(String(error));
+		}
+	}, []);
+
+	const selectedAgentMessages = selectedAgentId
+		? (agentMessagesById[selectedAgentId] ?? [])
+		: [];
+	const selectedAgentLogs = selectedAgentId ? (agentLogsById[selectedAgentId] ?? []) : [];
 
 	return (
 		<SidebarProvider>
@@ -447,6 +716,15 @@ function App() {
 								isLoading={isAgentsLoading}
 								error={agentsError}
 								isCreating={isCreatingAgent}
+								selectedAgentId={selectedAgentId}
+								prompt={agentPrompt}
+								messages={selectedAgentMessages}
+								logs={selectedAgentLogs}
+								isRunning={isAgentRunning}
+								onSelectAgent={setSelectedAgentId}
+								onPromptChange={setAgentPrompt}
+								onRunPrompt={() => void runPromptOnAgent()}
+								onStopRun={() => void stopAgentRun()}
 								onCreateAgent={createAgent}
 							/>
 						) : (
