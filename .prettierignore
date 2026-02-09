@@ -1,0 +1,6 @@
+# Tauri
+/src-tauri/target/
+/src-tauri/gen/schemas
+
+# TanStack
+src/routeTree.gen.ts
