@@ -30,6 +30,26 @@ function App() {
 	const [selectedRepo, setSelectedRepo] = useState<Repo | null>(null);
 	const [remoteInfo, setRemoteInfo] = useState<RemoteInfo | null>(null);
 
+	const openSelectedRepoInExplorer = useCallback(async () => {
+		if (!selectedRepo) return;
+		try {
+			await openPath(selectedRepo.path);
+		} catch (error) {
+			toast.error(String(error));
+		}
+	}, [selectedRepo]);
+
+	const openSelectedRepoInCursor = useCallback(async () => {
+		if (!selectedRepo) return;
+		try {
+			await invoke('open_in_cursor', {
+				path: selectedRepo.path,
+			});
+		} catch (error) {
+			toast.error(String(error));
+		}
+	}, [selectedRepo]);
+
 	const loadRepos = useCallback(async () => {
 		try {
 			const result = await invoke<Repo[]>('list_repos');
@@ -72,13 +92,31 @@ function App() {
 		})();
 	}, [selectedRepo]);
 
-	// Keyboard shortcut: Ctrl+Shift+G to open remote in browser
+	// Keyboard shortcuts:
+	// - Ctrl+Shift+A: open selected repo in Cursor
+	// - Ctrl+Shift+F: show selected repo in Finder/Explorer
+	// - Ctrl+Shift+G: open selected repo remote in browser
 	useEffect(() => {
 		function handleKeyDown(event: KeyboardEvent) {
-			if (event.ctrlKey && event.shiftKey && event.key === 'G') {
+			if (!event.ctrlKey || !event.shiftKey) return;
+			const key = event.key.toLowerCase();
+
+			if (key === 'a') {
+				event.preventDefault();
+				void openSelectedRepoInCursor();
+				return;
+			}
+
+			if (key === 'f') {
+				event.preventDefault();
+				void openSelectedRepoInExplorer();
+				return;
+			}
+
+			if (key === 'g') {
 				event.preventDefault();
 				if (remoteInfo) {
-					openRemoteInBrowser(remoteInfo);
+					void openRemoteInBrowser(remoteInfo);
 				}
 			}
 		}
@@ -87,7 +125,7 @@ function App() {
 		return () => {
 			globalThis.removeEventListener('keydown', handleKeyDown);
 		};
-	}, [remoteInfo]);
+	}, [openSelectedRepoInCursor, openSelectedRepoInExplorer, remoteInfo]);
 
 	return (
 		<SidebarProvider>
@@ -115,13 +153,8 @@ function App() {
 								<Button
 									variant="outline"
 									size="sm"
-									onClick={async () => {
-										try {
-											await openPath(selectedRepo.path);
-										} catch (error) {
-											toast.error(String(error));
-										}
-									}}
+									onClick={() => void openSelectedRepoInExplorer()}
+									title="Ctrl+Shift+F"
 								>
 									<FolderOpen className="size-4" />
 									Show in Explorer
@@ -129,15 +162,8 @@ function App() {
 								<Button
 									variant="outline"
 									size="sm"
-									onClick={async () => {
-										try {
-											await invoke('open_in_cursor', {
-												path: selectedRepo.path,
-											});
-										} catch (error) {
-											toast.error(String(error));
-										}
-									}}
+									onClick={() => void openSelectedRepoInCursor()}
+									title="Ctrl+Shift+A"
 								>
 									<SquareTerminal className="size-4" />
 									Open in Cursor
