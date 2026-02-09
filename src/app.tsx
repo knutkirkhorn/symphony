@@ -136,6 +136,33 @@ function App() {
 		[repos],
 	);
 
+	const pullRepo = useCallback(
+		async (repo: Repo) => {
+			try {
+				const output = await invoke<string>('pull_repo', {
+					path: repo.path,
+				});
+				toast.success(
+					output.includes('Already up to date')
+						? `${repo.name} is already up to date`
+						: `Pulled changes for ${repo.name}`,
+				);
+			} catch (error) {
+				toast.error(String(error));
+				return;
+			}
+
+			void checkRepoUpdates(true);
+			if (selectedRepo?.id === repo.id) {
+				// Force history/diff effects to reload with the updated repository state.
+				setSelectedRepo(previous =>
+					previous ? {...previous, path: repo.path} : previous,
+				);
+			}
+		},
+		[checkRepoUpdates, selectedRepo],
+	);
+
 	useEffect(() => {
 		loadRepos();
 		loadGroups();
@@ -282,6 +309,7 @@ function App() {
 				onReposChange={loadRepos}
 				onGroupsChange={loadGroups}
 				onCheckRepoUpdates={() => void checkRepoUpdates(true)}
+				onPullRepo={pullRepo}
 			/>
 			<SidebarInset>
 				{repos.length === 0 ? (

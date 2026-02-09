@@ -60,6 +60,7 @@ import {invoke} from '@tauri-apps/api/core';
 import {
 	ArrowRightLeft,
 	ChevronRight,
+	Download,
 	FolderGit2,
 	FolderPlus,
 	MoreHorizontal,
@@ -81,6 +82,7 @@ type RepoSidebarProperties = {
 	onReposChange: () => void;
 	onGroupsChange: () => void;
 	onCheckRepoUpdates: () => void;
+	onPullRepo: (repo: Repo) => Promise<void>;
 };
 
 async function handleRemoveRepo(id: number, onReposChange: () => void) {
@@ -147,6 +149,7 @@ function DraggableRepoItem({
 	onRepoSelect,
 	onReposChange,
 	onPointerDragStart,
+	onPullRepo,
 }: {
 	repo: Repo;
 	syncStatus?: RepoSyncStatus;
@@ -155,6 +158,7 @@ function DraggableRepoItem({
 	onRepoSelect: (repo: Repo) => void;
 	onReposChange: () => void;
 	onPointerDragStart: (event: React.PointerEvent, repo: Repo) => void;
+	onPullRepo: (repo: Repo) => Promise<void>;
 }) {
 	// Groups the repo can be moved to (exclude the one it's already in)
 	const moveTargets = groups.filter(g => g.id !== repo.group_id);
@@ -181,6 +185,14 @@ function DraggableRepoItem({
 					</SidebarMenuButton>
 				</ContextMenuTrigger>
 				<ContextMenuContent>
+					<ContextMenuItem
+						onClick={() => void onPullRepo(repo)}
+						disabled={syncStatus ? !syncStatus.has_upstream : false}
+					>
+						<Download className="size-4" />
+						Pull changes
+					</ContextMenuItem>
+					<ContextMenuSeparator />
 					{(moveTargets.length > 0 || canMoveToUngrouped) && (
 						<>
 							<ContextMenuSub>
@@ -312,6 +324,7 @@ function GroupSection({
 	onGroupsChange,
 	onAddRepo,
 	onPointerDragStart,
+	onPullRepo,
 }: {
 	group: Group;
 	repos: Repo[];
@@ -324,6 +337,7 @@ function GroupSection({
 	onGroupsChange: () => void;
 	onAddRepo: () => void;
 	onPointerDragStart: (event: React.PointerEvent, repo: Repo) => void;
+	onPullRepo: (repo: Repo) => Promise<void>;
 }) {
 	const [isOpen, setIsOpen] = useState(true);
 	const [isRenaming, setIsRenaming] = useState(false);
@@ -450,6 +464,7 @@ function GroupSection({
 											onRepoSelect={onRepoSelect}
 											onReposChange={onReposChange}
 											onPointerDragStart={onPointerDragStart}
+											onPullRepo={onPullRepo}
 										/>
 									))
 								)}
@@ -532,6 +547,7 @@ function UngroupedSection({
 	onRepoSelect,
 	onReposChange,
 	onPointerDragStart,
+	onPullRepo,
 }: {
 	repos: Repo[];
 	groups: Group[];
@@ -541,6 +557,7 @@ function UngroupedSection({
 	onRepoSelect: (repo: Repo) => void;
 	onReposChange: () => void;
 	onPointerDragStart: (event: React.PointerEvent, repo: Repo) => void;
+	onPullRepo: (repo: Repo) => Promise<void>;
 }) {
 	const {isDragOver, handlers: dropHandlers} = useDropZone(
 		async (repoId: number) => {
@@ -580,6 +597,7 @@ function UngroupedSection({
 							onRepoSelect={onRepoSelect}
 							onReposChange={onReposChange}
 							onPointerDragStart={onPointerDragStart}
+							onPullRepo={onPullRepo}
 						/>
 					))}
 				</SidebarMenu>
@@ -600,6 +618,7 @@ export function RepoSidebar({
 	onReposChange,
 	onGroupsChange,
 	onCheckRepoUpdates,
+	onPullRepo,
 }: RepoSidebarProperties) {
 	const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
 	const [isAddRepoOpen, setIsAddRepoOpen] = useState(false);
@@ -772,6 +791,7 @@ export function RepoSidebar({
 							onGroupsChange={onGroupsChange}
 							onAddRepo={() => setIsAddRepoOpen(true)}
 							onPointerDragStart={handlePointerDragStart}
+							onPullRepo={onPullRepo}
 						/>
 					))}
 
@@ -786,6 +806,7 @@ export function RepoSidebar({
 							onRepoSelect={onRepoSelect}
 							onReposChange={onReposChange}
 							onPointerDragStart={handlePointerDragStart}
+							onPullRepo={onPullRepo}
 						/>
 					)}
 				</div>

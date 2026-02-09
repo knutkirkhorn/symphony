@@ -352,6 +352,25 @@ pub fn get_repo_sync_status(path: String, fetch: Option<bool>) -> Result<RepoSyn
     Ok(status)
 }
 
+#[tauri::command]
+pub fn pull_repo(path: String) -> Result<String, String> {
+    let output = run_git_command(
+        &path,
+        &[
+            "pull".to_string(),
+            "--ff-only".to_string(),
+            "--stat".to_string(),
+        ],
+    )?;
+
+    let trimmed = output.trim();
+    if trimmed.is_empty() {
+        Ok("Pull completed".to_string())
+    } else {
+        Ok(trimmed.to_string())
+    }
+}
+
 fn parse_remote_url(remote_url: &str) -> Option<RemoteInfo> {
     let url = remote_url.trim_end_matches(".git");
 
