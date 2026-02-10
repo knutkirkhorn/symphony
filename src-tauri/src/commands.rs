@@ -77,12 +77,16 @@ pub fn list_repos(db: State<'_, Database>) -> Result<Vec<Repo>, String> {
 }
 
 #[tauri::command]
-pub fn add_repo(db: State<'_, Database>, path: String) -> Result<Repo, String> {
+pub fn add_repo(
+    db: State<'_, Database>,
+    path: String,
+    group_id: Option<i64>,
+) -> Result<Repo, String> {
     let repo_path = Path::new(&path);
     let name = validate_git_repo(repo_path)?;
 
     let conn = db.conn.lock().map_err(|e| e.to_string())?;
-    insert_repo(&conn, &name, &path)
+    insert_repo(&conn, &name, &path, group_id)
 }
 
 #[tauri::command]
@@ -90,6 +94,7 @@ pub fn clone_repo(
     db: State<'_, Database>,
     url: String,
     destination_parent: String,
+    group_id: Option<i64>,
 ) -> Result<Repo, String> {
     let trimmed_url = url.trim();
     if trimmed_url.is_empty() {
@@ -131,7 +136,7 @@ pub fn clone_repo(
     validate_git_repo(&destination_path)?;
     let destination = destination_path.to_string_lossy().to_string();
     let conn = db.conn.lock().map_err(|e| e.to_string())?;
-    insert_repo(&conn, &repo_name, &destination)
+    insert_repo(&conn, &repo_name, &destination, group_id)
 }
 
 #[tauri::command]
@@ -222,10 +227,15 @@ fn validate_git_repo(repo_path: &Path) -> Result<String, String> {
         .to_string())
 }
 
-fn insert_repo(conn: &Connection, name: &str, path: &str) -> Result<Repo, String> {
+fn insert_repo(
+    conn: &Connection,
+    name: &str,
+    path: &str,
+    group_id: Option<i64>,
+) -> Result<Repo, String> {
     conn.execute(
-        "INSERT INTO repos (name, path) VALUES (?1, ?2)",
-        rusqlite::params![name, path],
+        "INSERT INTO repos (name, path, group_id) VALUES (?1, ?2, ?3)",
+        rusqlite::params![name, path, group_id],
     )
     .map_err(|e| {
         if e.to_string().contains("UNIQUE") {

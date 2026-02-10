@@ -19,6 +19,7 @@ type AddRepoDialogProperties = {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	onReposChange: () => void;
+	groupId?: number;
 };
 
 type AddRepoMode = 'local' | 'clone';
@@ -27,6 +28,7 @@ export function AddRepoDialog({
 	open,
 	onOpenChange,
 	onReposChange,
+	groupId,
 }: AddRepoDialogProperties) {
 	const [mode, setMode] = useState<AddRepoMode>('local');
 	const [cloneUrl, setCloneUrl] = useState('');
@@ -54,7 +56,7 @@ export function AddRepoDialog({
 
 		setIsSubmitting(true);
 		try {
-			await invoke('add_repo', {path: selected});
+			await invoke('add_repo', {path: selected, groupId});
 			toast.success('Repository added successfully');
 			onReposChange();
 			onOpenChange(false);
@@ -87,6 +89,7 @@ export function AddRepoDialog({
 			await invoke('clone_repo', {
 				url: trimmedUrl,
 				destinationParent: trimmedDestination,
+				groupId,
 			});
 			toast.success('Repository cloned and added successfully');
 			onReposChange();

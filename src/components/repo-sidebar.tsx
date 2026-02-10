@@ -335,7 +335,7 @@ function GroupSection({
 	onRepoSelect: (repo: Repo) => void;
 	onReposChange: () => void;
 	onGroupsChange: () => void;
-	onAddRepo: () => void;
+	onAddRepo: (groupId: number) => void;
 	onPointerDragStart: (event: React.PointerEvent, repo: Repo) => void;
 	onPullRepo: (repo: Repo) => Promise<void>;
 }) {
@@ -423,7 +423,7 @@ function GroupSection({
 								</Button>
 							</DropdownMenuTrigger>
 							<DropdownMenuContent align="end" side="right">
-								<DropdownMenuItem onClick={onAddRepo}>
+								<DropdownMenuItem onClick={() => onAddRepo(group.id)}>
 									<Plus className="size-4" />
 									Add repository
 								</DropdownMenuItem>
@@ -622,6 +622,7 @@ export function RepoSidebar({
 }: RepoSidebarProperties) {
 	const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
 	const [isAddRepoOpen, setIsAddRepoOpen] = useState(false);
+	const [addRepoGroupId, setAddRepoGroupId] = useState<number | null>(null);
 	const [newGroupName, setNewGroupName] = useState('');
 	const inputReference = useRef<HTMLInputElement>(null);
 	const [activeDropZone, setActiveDropZone] = useState<DropZone | null>(null);
@@ -761,7 +762,10 @@ export function RepoSidebar({
 								<Button
 									variant="ghost"
 									size="icon-xs"
-									onClick={() => setIsAddRepoOpen(true)}
+									onClick={() => {
+										setAddRepoGroupId(null);
+										setIsAddRepoOpen(true);
+									}}
 								>
 									<Plus className="size-4" />
 								</Button>
@@ -789,7 +793,10 @@ export function RepoSidebar({
 							onRepoSelect={onRepoSelect}
 							onReposChange={onReposChange}
 							onGroupsChange={onGroupsChange}
-							onAddRepo={() => setIsAddRepoOpen(true)}
+							onAddRepo={groupId => {
+								setAddRepoGroupId(groupId);
+								setIsAddRepoOpen(true);
+							}}
 							onPointerDragStart={handlePointerDragStart}
 							onPullRepo={onPullRepo}
 						/>
@@ -814,8 +821,14 @@ export function RepoSidebar({
 
 			<AddRepoDialog
 				open={isAddRepoOpen}
-				onOpenChange={setIsAddRepoOpen}
+				onOpenChange={open => {
+					setIsAddRepoOpen(open);
+					if (!open) {
+						setAddRepoGroupId(null);
+					}
+				}}
 				onReposChange={onReposChange}
+				groupId={addRepoGroupId ?? undefined}
 			/>
 
 			{/* Create Group Dialog */}
