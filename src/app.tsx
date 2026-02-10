@@ -41,6 +41,14 @@ type AgentDonePayload = {
 	success: boolean;
 };
 
+function isMacOS() {
+	if (typeof navigator === 'undefined') return false;
+	const platform = navigator.platform.toUpperCase();
+	return platform.includes('MAC') || /Mac/.test(navigator.userAgent);
+}
+
+const SHORTCUT_MODIFIER_LABEL = isMacOS() ? 'Cmd' : 'Ctrl';
+
 function randomRunId() {
 	if ('randomUUID' in crypto) return crypto.randomUUID();
 	return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -434,12 +442,17 @@ function App() {
 	}, [selectedRepo, selectedCommitHash]);
 
 	// Keyboard shortcuts:
-	// - Ctrl+Shift+A: open selected repo in Cursor
-	// - Ctrl+Shift+F: show selected repo in Finder/Explorer
-	// - Ctrl+Shift+G: open selected repo remote in browser
+	// - Ctrl+Shift+A (Windows/Linux) or Cmd+Shift+A (macOS): open selected repo in Cursor
+	// - Ctrl+Shift+F (Windows/Linux) or Cmd+Shift+F (macOS): show selected repo in Finder/Explorer
+	// - Ctrl+Shift+G (Windows/Linux) or Cmd+Shift+G (macOS): open selected repo remote in browser
 	useEffect(() => {
 		function handleKeyDown(event: KeyboardEvent) {
-			if (!event.ctrlKey || !event.shiftKey) return;
+			if (!event.shiftKey) return;
+
+			const isMac = isMacOS();
+			const primaryModifierPressed = isMac ? event.metaKey : event.ctrlKey;
+			if (!primaryModifierPressed) return;
+
 			const key = event.key.toLowerCase();
 
 			if (key === 'a') {
@@ -660,7 +673,7 @@ function App() {
 									variant="outline"
 									size="sm"
 									onClick={() => void openSelectedRepoInExplorer()}
-									title="Ctrl+Shift+F"
+									title={`${SHORTCUT_MODIFIER_LABEL}+Shift+F`}
 								>
 									<FolderOpen className="size-4" />
 									Show in Explorer
@@ -669,7 +682,7 @@ function App() {
 									variant="outline"
 									size="sm"
 									onClick={() => void openSelectedRepoInCursor()}
-									title="Ctrl+Shift+A"
+									title={`${SHORTCUT_MODIFIER_LABEL}+Shift+A`}
 								>
 									<SquareTerminal className="size-4" />
 									Open in Cursor
@@ -679,7 +692,7 @@ function App() {
 										variant="outline"
 										size="sm"
 										onClick={() => openRemoteInBrowser(remoteInfo)}
-										title="Ctrl+Shift+G"
+										title={`${SHORTCUT_MODIFIER_LABEL}+Shift+G`}
 									>
 										<ExternalLink className="size-4" />
 										{remoteInfo.provider === 'github'
