@@ -151,6 +151,7 @@ function App() {
 	const [isAgentsLoading, setIsAgentsLoading] = useState(false);
 	const [agentsError, setAgentsError] = useState<string | null>(null);
 	const [isCreatingAgent, setIsCreatingAgent] = useState(false);
+	const [isDeletingAgentId, setIsDeletingAgentId] = useState<number | null>(null);
 	const [selectedAgentId, setSelectedAgentId] = useState<number | null>(null);
 	const [agentPrompt, setAgentPrompt] = useState('');
 	const [isAgentRunning, setIsAgentRunning] = useState(false);
@@ -638,6 +639,38 @@ function App() {
 		appendAgentMessage,
 	]);
 
+	const deleteAgent = useCallback(async (agent: Agent) => {
+		setIsDeletingAgentId(agent.id);
+		try {
+			await invoke('delete_agent', {agentId: agent.id});
+			setAgents(previous => previous.filter(existing => existing.id !== agent.id));
+			setSelectedAgentId(previous => {
+				if (previous !== agent.id) return previous;
+				return agents.find(existing => existing.id !== agent.id)?.id ?? null;
+			});
+			setAgentMessagesById(previous => {
+				const next = {...previous};
+				delete next[agent.id];
+				return next;
+			});
+			setAgentLogsById(previous => {
+				const next = {...previous};
+				delete next[agent.id];
+				return next;
+			});
+			if (activeRunAgentIdReference.current === agent.id) {
+				setIsAgentRunning(false);
+				activeRunIdReference.current = null;
+				activeRunAgentIdReference.current = null;
+			}
+			toast.success(`Deleted agent "${agent.name}"`);
+		} catch (error) {
+			toast.error(String(error));
+		} finally {
+			setIsDeletingAgentId(null);
+		}
+	}, [agents]);
+
 	const stopAgentRun = useCallback(async () => {
 		try {
 			await invoke('stop_repo_agent');
@@ -766,6 +799,8 @@ function App() {
 								onRunPrompt={() => void runPromptOnAgent()}
 								onStopRun={() => void stopAgentRun()}
 								onCreateAgent={createAgent}
+								onDeleteAgent={deleteAgent}
+								isDeletingAgentId={isDeletingAgentId}
 							/>
 						) : (
 							<GitHistoryView

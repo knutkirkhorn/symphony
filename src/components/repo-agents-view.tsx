@@ -1,10 +1,21 @@
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import {ScrollArea} from '@/components/ui/scroll-area';
 import {Separator} from '@/components/ui/separator';
 import {Skeleton} from '@/components/ui/skeleton';
 import type {Agent, AgentConversationEntry} from '@/lib/types';
 import {cn} from '@/lib/utils';
+import {Trash2} from 'lucide-react';
 import {useState} from 'react';
 
 type RepoAgentsViewProperties = {
@@ -22,6 +33,8 @@ type RepoAgentsViewProperties = {
 	onRunPrompt: () => void;
 	onStopRun: () => void;
 	onCreateAgent: (name: string) => Promise<void>;
+	onDeleteAgent: (agent: Agent) => Promise<void>;
+	isDeletingAgentId: number | null;
 };
 
 function formatCreatedAt(value: string) {
@@ -45,8 +58,11 @@ export function RepoAgentsView({
 	onRunPrompt,
 	onStopRun,
 	onCreateAgent,
+	onDeleteAgent,
+	isDeletingAgentId,
 }: RepoAgentsViewProperties) {
 	const [newAgentName, setNewAgentName] = useState('');
+	const [agentPendingDelete, setAgentPendingDelete] = useState<Agent | undefined>();
 
 	async function handleCreateAgent() {
 		const trimmedName = newAgentName.trim();
@@ -57,6 +73,8 @@ export function RepoAgentsView({
 
 	const selectedAgent =
 		agents.find(agent => agent.id === selectedAgentId) ?? undefined;
+	const isDeletingSelectedAgent =
+		selectedAgentId !== null && isDeletingAgentId === selectedAgentId;
 
 	return (
 		<div className="flex h-full min-h-0 min-w-0 flex-1 flex-col gap-4 p-4">
@@ -112,23 +130,42 @@ export function RepoAgentsView({
 									</p>
 								) : (
 									agents.map(agent => (
-										<button
+										<div
 											key={agent.id}
-											type="button"
 											className={cn(
-												'w-full rounded-md border p-3 text-left hover:bg-muted/50',
+												'rounded-md border p-3',
 												selectedAgentId === agent.id &&
-													'border-primary bg-muted',
+													'border-primary bg-muted/60',
 											)}
-											onClick={() => {
-												onSelectAgent(agent.id);
-											}}
 										>
-											<p className="font-medium">{agent.name}</p>
-											<p className="text-xs text-muted-foreground">
-												Created {formatCreatedAt(agent.created_at)}
-											</p>
-										</button>
+											<div className="flex items-start justify-between gap-2">
+												<button
+													type="button"
+													className="min-w-0 flex-1 text-left hover:opacity-90"
+													onClick={() => {
+														onSelectAgent(agent.id);
+													}}
+												>
+													<p className="truncate font-medium">{agent.name}</p>
+													<p className="text-xs text-muted-foreground">
+														Created {formatCreatedAt(agent.created_at)}
+													</p>
+												</button>
+												<Button
+													type="button"
+													variant="ghost"
+													size="icon"
+													className="size-7 shrink-0 text-muted-foreground hover:text-destructive"
+													disabled={isDeletingAgentId === agent.id}
+													onClick={() => {
+														setAgentPendingDelete(agent);
+													}}
+													title={`Delete ${agent.name}`}
+												>
+													<Trash2 className="size-4" />
+												</Button>
+											</div>
+										</div>
 									))
 								)}
 							</div>
@@ -192,7 +229,9 @@ export function RepoAgentsView({
 												onRunPrompt();
 											}
 										}}
-										disabled={!selectedAgent || isRunning}
+										disabled={
+											!selectedAgent || isRunning || isDeletingSelectedAgent
+										}
 									/>
 									<div className="flex items-center justify-end gap-2">
 										<Button
@@ -204,7 +243,12 @@ export function RepoAgentsView({
 										</Button>
 										<Button
 											onClick={onRunPrompt}
-											disabled={!selectedAgent || isRunning || !prompt.trim()}
+											disabled={
+												!selectedAgent ||
+												isRunning ||
+												isDeletingSelectedAgent ||
+												!prompt.trim()
+											}
 										>
 											{isRunning ? 'Running...' : 'Run prompt'}
 										</Button>
@@ -234,6 +278,40 @@ export function RepoAgentsView({
 					</div>
 				</div>
 			</div>
+			<AlertDialog
+				open={agentPendingDelete !== undefined}
+				onOpenChange={open => {
+					if (!open) {
+						setAgentPendingDelete(undefined);
+					}
+				}}
+			>
+				<AlertDialogContent>
+					<AlertDialogHeader>
+						<AlertDialogTitle>Delete agent</AlertDialogTitle>
+						<AlertDialogDescription>
+							Are you sure you want to delete{' '}
+							<span className="font-medium text-foreground">
+								{agentPendingDelete?.name}
+							</span>
+							? This cannot be undone.
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel>Cancel</AlertDialogCancel>
+						<AlertDialogAction
+							variant="destructive"
+							onClick={() => {
+								if (!agentPendingDelete) return;
+								void onDeleteAgent(agentPendingDelete);
+								setAgentPendingDelete(undefined);
+							}}
+						>
+							Delete
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
 		</div>
 	);
 }

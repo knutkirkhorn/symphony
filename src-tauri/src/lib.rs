@@ -2,7 +2,7 @@ mod commands;
 mod db;
 
 use commands::{
-    add_repo, clone_repo, create_agent, create_group, delete_group, get_commit_changes,
+    add_repo, clone_repo, create_agent, create_group, delete_agent, delete_group, get_commit_changes,
     get_current_branch, get_remote_url, get_repo_sync_status, list_agents, list_git_history,
     list_groups, list_repos, move_repo_to_group, open_in_cursor, pull_repo, remove_repo,
     rename_group, run_repo_agent, stop_repo_agent, AgentRuntimeState,
@@ -35,6 +35,7 @@ pub fn run() {
             get_commit_changes,
             list_agents,
             create_agent,
+            delete_agent,
             run_repo_agent,
             stop_repo_agent,
             list_groups,
