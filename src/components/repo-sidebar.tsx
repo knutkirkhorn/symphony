@@ -53,13 +53,17 @@ import {
 	SidebarMenuAction,
 	SidebarMenuButton,
 	SidebarMenuItem,
+	SidebarMenuSub,
+	SidebarMenuSubButton,
+	SidebarMenuSubItem,
 } from '@/components/ui/sidebar';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
-import type {Group, Repo, RepoSyncStatus} from '@/lib/types';
+import type {Agent, Group, Repo, RepoSyncStatus} from '@/lib/types';
 import {cn} from '@/lib/utils';
 import {invoke} from '@tauri-apps/api/core';
 import {
 	ArrowRightLeft,
+	Bot,
 	ChevronRight,
 	Download,
 	FolderGit2,
@@ -70,16 +74,25 @@ import {
 	RefreshCw,
 	Trash2,
 } from 'lucide-react';
-import {useCallback, useRef, useState, type FormEvent} from 'react';
+import {useCallback, useEffect, useRef, useState, type FormEvent} from 'react';
 import {toast} from 'sonner';
 
 type RepoSidebarProperties = {
 	repos: Repo[];
 	groups: Group[];
 	repoSyncStatusById: Record<number, RepoSyncStatus>;
+	agentsByRepoId: Record<number, Agent[]>;
+	agentsLoadingByRepoId: Record<number, boolean>;
+	agentsErrorByRepoId: Record<number, string | null>;
 	isCheckingRepoUpdates: boolean;
 	selectedRepoId: number | null;
+	selectedAgentId: number | null;
 	onRepoSelect: (repo: Repo) => void;
+	onAgentSelect: (repo: Repo, agentId: number) => void;
+	onCreateAgent: (repoId: number, name: string) => Promise<void>;
+	onDeleteAgent: (agent: Agent) => Promise<void>;
+	isCreatingAgentRepoId: number | null;
+	isDeletingAgentId: number | null;
 	onReposChange: () => void;
 	onGroupsChange: () => void;
 	onCheckRepoUpdates: () => void;
@@ -146,8 +159,17 @@ function DraggableRepoItem({
 	repo,
 	syncStatus,
 	isActive,
+	selectedAgentId,
+	agents,
+	isAgentsLoading,
+	agentsError,
+	isCreatingAgentRepoId,
+	isDeletingAgentId,
 	groups,
 	onRepoSelect,
+	onAgentSelect,
+	onCreateAgent,
+	onDeleteAgent,
 	onReposChange,
 	onPointerDragStart,
 	onPullRepo,
@@ -155,8 +177,17 @@ function DraggableRepoItem({
 	repo: Repo;
 	syncStatus?: RepoSyncStatus;
 	isActive: boolean;
+	selectedAgentId: number | null;
+	agents: Agent[];
+	isAgentsLoading: boolean;
+	agentsError: string | null;
+	isCreatingAgentRepoId: number | null;
+	isDeletingAgentId: number | null;
 	groups: Group[];
 	onRepoSelect: (repo: Repo) => void;
+	onAgentSelect: (repo: Repo, agentId: number) => void;
+	onCreateAgent: (repoId: number, name: string) => Promise<void>;
+	onDeleteAgent: (agent: Agent) => Promise<void>;
 	onReposChange: () => void;
 	onPointerDragStart: (event: React.PointerEvent, repo: Repo) => void;
 	onPullRepo: (repo: Repo) => Promise<void>;
@@ -164,6 +195,24 @@ function DraggableRepoItem({
 	// Groups the repo can be moved to (exclude the one it's already in)
 	const moveTargets = groups.filter(g => g.id !== repo.group_id);
 	const canMoveToUngrouped = repo.group_id !== null;
+	const [isAgentsOpen, setIsAgentsOpen] = useState(isActive);
+	const [isCreatingInlineAgent, setIsCreatingInlineAgent] = useState(false);
+	const [newAgentName, setNewAgentName] = useState('');
+	const isCreatingThisRepoAgent = isCreatingAgentRepoId === repo.id;
+	const hasAgents = agents.length > 0;
+
+	async function handleCreateAgent() {
+		const trimmed = newAgentName.trim();
+		if (!trimmed) return;
+		await onCreateAgent(repo.id, trimmed);
+		setNewAgentName('');
+		setIsCreatingInlineAgent(false);
+		setIsAgentsOpen(true);
+	}
+
+	useEffect(() => {
+		if (isActive) setIsAgentsOpen(true);
+	}, [isActive]);
 
 	return (
 		<SidebarMenuItem className="select-none cursor-grab active:cursor-grabbing">
@@ -175,7 +224,7 @@ function DraggableRepoItem({
 						onPointerDown={event => onPointerDragStart(event, repo)}
 						title={repo.path}
 						className={cn(
-							'select-none cursor-grab active:cursor-grabbing',
+							'select-none cursor-grab active:cursor-grabbing pr-14',
 							isActive &&
 								'bg-primary/12 text-foreground font-semibold ring-1 ring-primary/35 shadow-sm [&>svg]:text-primary',
 						)}
@@ -183,7 +232,7 @@ function DraggableRepoItem({
 						<FolderGit2 className="size-4" />
 						<span>{repo.name}</span>
 						{syncStatus?.can_pull && (
-							<span className="ml-auto rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300">
+							<span className="ml-auto mr-1 rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300">
 								{syncStatus.behind} new
 							</span>
 						)}
@@ -242,6 +291,137 @@ function DraggableRepoItem({
 					</ContextMenuItem>
 				</ContextMenuContent>
 			</ContextMenu>
+			<SidebarMenuAction
+				onClick={event => {
+					event.stopPropagation();
+					setIsAgentsOpen(previous => !previous);
+				}}
+				title={isAgentsOpen ? 'Collapse agents' : 'Expand agents'}
+				className={cn(
+					'right-8 text-sidebar-foreground/70 hover:text-sidebar-foreground',
+					isAgentsOpen && 'text-sidebar-foreground',
+				)}
+			>
+				<ChevronRight
+					className={cn('size-3.5 transition-transform', isAgentsOpen && 'rotate-90')}
+				/>
+			</SidebarMenuAction>
+			<Collapsible open={isAgentsOpen} onOpenChange={setIsAgentsOpen}>
+				<CollapsibleContent>
+					<SidebarMenuSub className="mt-1 rounded-md bg-sidebar-accent/20 py-2">
+						<SidebarMenuSubItem>
+							<div className="flex items-center justify-between px-2">
+								<p className="text-[10px] font-semibold tracking-wide text-sidebar-foreground/60 uppercase">
+									Agents
+								</p>
+								<Button
+									type="button"
+									variant="ghost"
+									size="icon"
+									className="size-5"
+									onClick={() =>
+										setIsCreatingInlineAgent(previous => !previous)
+									}
+									title="Create agent"
+								>
+									<Plus className="size-3.5" />
+								</Button>
+							</div>
+						</SidebarMenuSubItem>
+						{isCreatingInlineAgent && (
+							<SidebarMenuSubItem>
+								<div className="flex items-center gap-1.5 px-2 py-1">
+									<Input
+										value={newAgentName}
+										onChange={event => setNewAgentName(event.target.value)}
+										placeholder="Agent name"
+										className="h-7 text-xs"
+										disabled={isCreatingThisRepoAgent}
+										onKeyDown={event => {
+											if (event.key === 'Enter') {
+												event.preventDefault();
+												void handleCreateAgent();
+											}
+										}}
+									/>
+									<Button
+										type="button"
+										size="sm"
+										className="h-7 px-2 text-xs"
+										disabled={
+											isCreatingThisRepoAgent || newAgentName.trim().length === 0
+										}
+										onClick={() => void handleCreateAgent()}
+									>
+										{isCreatingThisRepoAgent ? '...' : 'Add'}
+									</Button>
+								</div>
+							</SidebarMenuSubItem>
+						)}
+						{isAgentsLoading ? (
+							<SidebarMenuSubItem>
+								<p className="px-2 py-1 text-xs text-sidebar-foreground/60">
+									Loading agents...
+								</p>
+							</SidebarMenuSubItem>
+						) : agentsError ? (
+							<SidebarMenuSubItem>
+								<p className="px-2 py-1 text-xs text-destructive">{agentsError}</p>
+							</SidebarMenuSubItem>
+						) : hasAgents ? (
+							agents.map(agent => (
+								<SidebarMenuSubItem key={agent.id}>
+									<div className="group/menu-sub-item relative">
+										<SidebarMenuSubButton
+											asChild
+											size="sm"
+											isActive={selectedAgentId === agent.id}
+											className={cn(
+												'pr-8 transition-all',
+												'data-[active=true]:bg-primary/16 data-[active=true]:text-primary data-[active=true]:font-semibold data-[active=true]:shadow-sm data-[active=true]:ring-1 data-[active=true]:ring-primary/35',
+											)}
+										>
+											<button
+												type="button"
+												onClick={() => onAgentSelect(repo, agent.id)}
+												title={agent.name}
+											>
+												<Bot
+													className={cn(
+														'size-3.5',
+														selectedAgentId === agent.id && 'text-primary',
+													)}
+												/>
+												<span>{agent.name}</span>
+											</button>
+										</SidebarMenuSubButton>
+										<Button
+											type="button"
+											variant="ghost"
+											size="icon"
+											className="absolute top-1/2 right-1 size-5 -translate-y-1/2 text-sidebar-foreground/50 opacity-0 transition-opacity hover:text-destructive group-hover/menu-sub-item:opacity-100"
+											disabled={isDeletingAgentId === agent.id}
+											onClick={event => {
+												event.stopPropagation();
+												void onDeleteAgent(agent);
+											}}
+											title={`Delete ${agent.name}`}
+										>
+											<Trash2 className="size-3.5" />
+										</Button>
+									</div>
+								</SidebarMenuSubItem>
+							))
+						) : (
+							<SidebarMenuSubItem>
+								<p className="px-2 py-1 text-xs text-sidebar-foreground/60">
+									No agents yet
+								</p>
+							</SidebarMenuSubItem>
+						)}
+					</SidebarMenuSub>
+				</CollapsibleContent>
+			</Collapsible>
 			<AlertDialog>
 				<AlertDialogTrigger asChild>
 					<SidebarMenuAction
@@ -321,10 +501,19 @@ function GroupSection({
 	group,
 	repos,
 	repoSyncStatusById,
+	agentsByRepoId,
+	agentsLoadingByRepoId,
+	agentsErrorByRepoId,
 	allGroups,
 	activeDropZone,
 	selectedRepoId,
+	selectedAgentId,
 	onRepoSelect,
+	onAgentSelect,
+	onCreateAgent,
+	onDeleteAgent,
+	isCreatingAgentRepoId,
+	isDeletingAgentId,
 	onReposChange,
 	onGroupsChange,
 	onAddRepo,
@@ -334,10 +523,19 @@ function GroupSection({
 	group: Group;
 	repos: Repo[];
 	repoSyncStatusById: Record<number, RepoSyncStatus>;
+	agentsByRepoId: Record<number, Agent[]>;
+	agentsLoadingByRepoId: Record<number, boolean>;
+	agentsErrorByRepoId: Record<number, string | null>;
 	allGroups: Group[];
 	activeDropZone: DropZone | null;
 	selectedRepoId: number | null;
+	selectedAgentId: number | null;
 	onRepoSelect: (repo: Repo) => void;
+	onAgentSelect: (repo: Repo, agentId: number) => void;
+	onCreateAgent: (repoId: number, name: string) => Promise<void>;
+	onDeleteAgent: (agent: Agent) => Promise<void>;
+	isCreatingAgentRepoId: number | null;
+	isDeletingAgentId: number | null;
 	onReposChange: () => void;
 	onGroupsChange: () => void;
 	onAddRepo: (groupId: number) => void;
@@ -465,8 +663,19 @@ function GroupSection({
 											repo={repo}
 											syncStatus={repoSyncStatusById[repo.id]}
 											isActive={repo.id === selectedRepoId}
+											selectedAgentId={selectedAgentId}
+											agents={agentsByRepoId[repo.id] ?? []}
+											isAgentsLoading={Boolean(
+												agentsLoadingByRepoId[repo.id],
+											)}
+											agentsError={agentsErrorByRepoId[repo.id] ?? null}
+											isCreatingAgentRepoId={isCreatingAgentRepoId}
+											isDeletingAgentId={isDeletingAgentId}
 											groups={allGroups}
 											onRepoSelect={onRepoSelect}
+											onAgentSelect={onAgentSelect}
+											onCreateAgent={onCreateAgent}
+											onDeleteAgent={onDeleteAgent}
 											onReposChange={onReposChange}
 											onPointerDragStart={onPointerDragStart}
 											onPullRepo={onPullRepo}
@@ -547,9 +756,18 @@ function UngroupedSection({
 	repos,
 	groups,
 	repoSyncStatusById,
+	agentsByRepoId,
+	agentsLoadingByRepoId,
+	agentsErrorByRepoId,
 	activeDropZone,
 	selectedRepoId,
+	selectedAgentId,
 	onRepoSelect,
+	onAgentSelect,
+	onCreateAgent,
+	onDeleteAgent,
+	isCreatingAgentRepoId,
+	isDeletingAgentId,
 	onReposChange,
 	onPointerDragStart,
 	onPullRepo,
@@ -557,9 +775,18 @@ function UngroupedSection({
 	repos: Repo[];
 	groups: Group[];
 	repoSyncStatusById: Record<number, RepoSyncStatus>;
+	agentsByRepoId: Record<number, Agent[]>;
+	agentsLoadingByRepoId: Record<number, boolean>;
+	agentsErrorByRepoId: Record<number, string | null>;
 	activeDropZone: DropZone | null;
 	selectedRepoId: number | null;
+	selectedAgentId: number | null;
 	onRepoSelect: (repo: Repo) => void;
+	onAgentSelect: (repo: Repo, agentId: number) => void;
+	onCreateAgent: (repoId: number, name: string) => Promise<void>;
+	onDeleteAgent: (agent: Agent) => Promise<void>;
+	isCreatingAgentRepoId: number | null;
+	isDeletingAgentId: number | null;
 	onReposChange: () => void;
 	onPointerDragStart: (event: React.PointerEvent, repo: Repo) => void;
 	onPullRepo: (repo: Repo) => Promise<void>;
@@ -598,8 +825,17 @@ function UngroupedSection({
 							repo={repo}
 							syncStatus={repoSyncStatusById[repo.id]}
 							isActive={repo.id === selectedRepoId}
+							selectedAgentId={selectedAgentId}
+							agents={agentsByRepoId[repo.id] ?? []}
+							isAgentsLoading={Boolean(agentsLoadingByRepoId[repo.id])}
+							agentsError={agentsErrorByRepoId[repo.id] ?? null}
+							isCreatingAgentRepoId={isCreatingAgentRepoId}
+							isDeletingAgentId={isDeletingAgentId}
 							groups={groups}
 							onRepoSelect={onRepoSelect}
+							onAgentSelect={onAgentSelect}
+							onCreateAgent={onCreateAgent}
+							onDeleteAgent={onDeleteAgent}
 							onReposChange={onReposChange}
 							onPointerDragStart={onPointerDragStart}
 							onPullRepo={onPullRepo}
@@ -617,9 +853,18 @@ export function RepoSidebar({
 	repos,
 	groups,
 	repoSyncStatusById,
+	agentsByRepoId,
+	agentsLoadingByRepoId,
+	agentsErrorByRepoId,
 	isCheckingRepoUpdates,
 	selectedRepoId,
+	selectedAgentId,
 	onRepoSelect,
+	onAgentSelect,
+	onCreateAgent,
+	onDeleteAgent,
+	isCreatingAgentRepoId,
+	isDeletingAgentId,
 	onReposChange,
 	onGroupsChange,
 	onCheckRepoUpdates,
@@ -792,10 +1037,19 @@ export function RepoSidebar({
 							group={group}
 							repos={repos.filter(r => r.group_id === group.id)}
 							repoSyncStatusById={repoSyncStatusById}
+							agentsByRepoId={agentsByRepoId}
+							agentsLoadingByRepoId={agentsLoadingByRepoId}
+							agentsErrorByRepoId={agentsErrorByRepoId}
 							allGroups={groups}
 							activeDropZone={activeDropZone}
 							selectedRepoId={selectedRepoId}
+							selectedAgentId={selectedAgentId}
 							onRepoSelect={onRepoSelect}
+							onAgentSelect={onAgentSelect}
+							onCreateAgent={onCreateAgent}
+							onDeleteAgent={onDeleteAgent}
+							isCreatingAgentRepoId={isCreatingAgentRepoId}
+							isDeletingAgentId={isDeletingAgentId}
 							onReposChange={onReposChange}
 							onGroupsChange={onGroupsChange}
 							onAddRepo={groupId => {
@@ -813,9 +1067,18 @@ export function RepoSidebar({
 							repos={ungroupedRepos}
 							groups={groups}
 							repoSyncStatusById={repoSyncStatusById}
+							agentsByRepoId={agentsByRepoId}
+							agentsLoadingByRepoId={agentsLoadingByRepoId}
+							agentsErrorByRepoId={agentsErrorByRepoId}
 							activeDropZone={activeDropZone}
 							selectedRepoId={selectedRepoId}
+							selectedAgentId={selectedAgentId}
 							onRepoSelect={onRepoSelect}
+							onAgentSelect={onAgentSelect}
+							onCreateAgent={onCreateAgent}
+							onDeleteAgent={onDeleteAgent}
+							isCreatingAgentRepoId={isCreatingAgentRepoId}
+							isDeletingAgentId={isDeletingAgentId}
 							onReposChange={onReposChange}
 							onPointerDragStart={handlePointerDragStart}
 							onPullRepo={onPullRepo}

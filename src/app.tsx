@@ -147,10 +147,18 @@ function App() {
 	);
 	const [activeRepoViewTab, setActiveRepoViewTab] =
 		useState<RepoViewTab>('agent');
-	const [agents, setAgents] = useState<Agent[]>([]);
-	const [isAgentsLoading, setIsAgentsLoading] = useState(false);
-	const [agentsError, setAgentsError] = useState<string | null>(null);
-	const [isCreatingAgent, setIsCreatingAgent] = useState(false);
+	const [agentsByRepoId, setAgentsByRepoId] = useState<Record<number, Agent[]>>(
+		{},
+	);
+	const [agentsLoadingByRepoId, setAgentsLoadingByRepoId] = useState<
+		Record<number, boolean>
+	>({});
+	const [agentsErrorByRepoId, setAgentsErrorByRepoId] = useState<
+		Record<number, string | null>
+	>({});
+	const [isCreatingAgentRepoId, setIsCreatingAgentRepoId] = useState<
+		number | null
+	>(null);
 	const [isDeletingAgentId, setIsDeletingAgentId] = useState<number | null>(null);
 	const [selectedAgentId, setSelectedAgentId] = useState<number | null>(null);
 	const [agentPrompt, setAgentPrompt] = useState('');
@@ -179,6 +187,7 @@ function App() {
 	const remoteRequestIdReference = useRef(0);
 	const historyRequestIdReference = useRef(0);
 	const diffRequestIdReference = useRef(0);
+	const agentsRequestIdReference = useRef(0);
 	const activeRunIdReference = useRef<string | null>(null);
 	const activeRunAgentIdReference = useRef<number | null>(null);
 
@@ -358,34 +367,68 @@ function App() {
 	}, [selectedRepo]);
 
 	useEffect(() => {
-		if (!selectedRepo) {
-			setAgents([]);
-			setAgentsError(null);
+		if (repos.length === 0) {
+			setAgentsByRepoId({});
+			setAgentsLoadingByRepoId({});
+			setAgentsErrorByRepoId({});
 			return;
 		}
 
-		setIsAgentsLoading(true);
-		setAgentsError(null);
-		setAgents([]);
+		agentsRequestIdReference.current += 1;
+		const requestId = agentsRequestIdReference.current;
+		setAgentsLoadingByRepoId(
+			Object.fromEntries(repos.map(repo => [repo.id, true])),
+		);
+		setAgentsErrorByRepoId(
+			Object.fromEntries(repos.map(repo => [repo.id, null])),
+		);
 
 		(async () => {
-			try {
-				const result = await invoke<Agent[]>('list_agents', {
-					repoId: selectedRepo.id,
-				});
-				setAgents(result);
-				setSelectedAgentId(previous =>
-					previous && result.some(agent => agent.id === previous)
-						? previous
-						: (result[0]?.id ?? null),
-				);
-			} catch (error) {
-				setAgentsError(String(error));
-			} finally {
-				setIsAgentsLoading(false);
+			const results = await Promise.allSettled(
+				repos.map(async repo => {
+					const repoAgents = await invoke<Agent[]>('list_agents', {
+						repoId: repo.id,
+					});
+					return [repo.id, repoAgents] as const;
+				}),
+			);
+			if (requestId !== agentsRequestIdReference.current) return;
+
+			const nextAgentsByRepoId: Record<number, Agent[]> = {};
+			const nextErrorsByRepoId: Record<number, string | null> = {};
+			for (const [index, result] of results.entries()) {
+				const repoId = repos[index]?.id;
+				if (!repoId) continue;
+				if (result.status === 'fulfilled') {
+					nextAgentsByRepoId[repoId] = result.value[1];
+					nextErrorsByRepoId[repoId] = null;
+				} else {
+					nextAgentsByRepoId[repoId] = [];
+					nextErrorsByRepoId[repoId] = String(result.reason);
+				}
 			}
+
+			setAgentsByRepoId(nextAgentsByRepoId);
+			setAgentsErrorByRepoId(nextErrorsByRepoId);
+			setAgentsLoadingByRepoId(
+				Object.fromEntries(repos.map(repo => [repo.id, false])),
+			);
 		})();
-	}, [selectedRepo]);
+	}, [repos]);
+
+	useEffect(() => {
+		if (!selectedRepo) {
+			setSelectedAgentId(null);
+			return;
+		}
+
+		const selectedRepoAgents = agentsByRepoId[selectedRepo.id] ?? [];
+		setSelectedAgentId(previous =>
+			previous && selectedRepoAgents.some(agent => agent.id === previous)
+				? previous
+				: (selectedRepoAgents[0]?.id ?? null),
+		);
+	}, [selectedRepo, agentsByRepoId]);
 
 	useEffect(() => {
 		if (!selectedRepo) {
@@ -577,26 +620,31 @@ function App() {
 		};
 	}, [appendAgentLog, appendAgentMessage]);
 
-	const createAgent = useCallback(
-		async (name: string) => {
-			if (!selectedRepo) return;
-			setIsCreatingAgent(true);
-			try {
-				const createdAgent = await invoke<Agent>('create_agent', {
-					repoId: selectedRepo.id,
-					name,
-				});
-				setAgents(previous => [createdAgent, ...previous]);
-				setSelectedAgentId(createdAgent.id);
-				toast.success(`Created agent "${createdAgent.name}"`);
-			} catch (error) {
-				toast.error(String(error));
-			} finally {
-				setIsCreatingAgent(false);
-			}
-		},
-		[selectedRepo],
-	);
+	const createAgent = useCallback(async (repoId: number, name: string) => {
+		setIsCreatingAgentRepoId(repoId);
+		try {
+			const createdAgent = await invoke<Agent>('create_agent', {
+				repoId,
+				name,
+			});
+			setAgentsByRepoId(previous => ({
+				...previous,
+				[repoId]: [createdAgent, ...(previous[repoId] ?? [])],
+			}));
+			setSelectedRepo(previous =>
+				previous?.id === repoId
+					? previous
+					: (repos.find(repo => repo.id === repoId) ?? previous),
+			);
+			setSelectedAgentId(createdAgent.id);
+			setActiveRepoViewTab('agent');
+			toast.success(`Created agent "${createdAgent.name}"`);
+		} catch (error) {
+			toast.error(String(error));
+		} finally {
+			setIsCreatingAgentRepoId(null);
+		}
+	}, [repos]);
 
 	const runPromptOnAgent = useCallback(async () => {
 		if (!selectedRepo || !selectedAgentId) return;
@@ -643,10 +691,18 @@ function App() {
 		setIsDeletingAgentId(agent.id);
 		try {
 			await invoke('delete_agent', {agentId: agent.id});
-			setAgents(previous => previous.filter(existing => existing.id !== agent.id));
+			setAgentsByRepoId(previous => ({
+				...previous,
+				[agent.repo_id]: (previous[agent.repo_id] ?? []).filter(
+					existing => existing.id !== agent.id,
+				),
+			}));
 			setSelectedAgentId(previous => {
 				if (previous !== agent.id) return previous;
-				return agents.find(existing => existing.id !== agent.id)?.id ?? null;
+				const nextSelectedAgent = (agentsByRepoId[agent.repo_id] ?? []).find(
+					existing => existing.id !== agent.id,
+				);
+				return nextSelectedAgent?.id ?? null;
 			});
 			setAgentMessagesById(previous => {
 				const next = {...previous};
@@ -669,7 +725,7 @@ function App() {
 		} finally {
 			setIsDeletingAgentId(null);
 		}
-	}, [agents]);
+	}, [agentsByRepoId]);
 
 	const stopAgentRun = useCallback(async () => {
 		try {
@@ -682,6 +738,9 @@ function App() {
 		}
 	}, []);
 
+	const selectedRepoAgents = selectedRepo ? (agentsByRepoId[selectedRepo.id] ?? []) : [];
+	const selectedAgent =
+		selectedRepoAgents.find(agent => agent.id === selectedAgentId) ?? null;
 	const selectedAgentMessages = selectedAgentId
 		? (agentMessagesById[selectedAgentId] ?? [])
 		: [];
@@ -695,9 +754,22 @@ function App() {
 				repos={repos}
 				groups={groups}
 				repoSyncStatusById={repoSyncStatusById}
+				agentsByRepoId={agentsByRepoId}
+				agentsLoadingByRepoId={agentsLoadingByRepoId}
+				agentsErrorByRepoId={agentsErrorByRepoId}
 				isCheckingRepoUpdates={isCheckingRepoUpdates}
 				selectedRepoId={selectedRepo?.id ?? null}
+				selectedAgentId={selectedAgentId}
 				onRepoSelect={setSelectedRepo}
+				onAgentSelect={(repo, agentId) => {
+					setSelectedRepo(repo);
+					setSelectedAgentId(agentId);
+					setActiveRepoViewTab('agent');
+				}}
+				onCreateAgent={createAgent}
+				onDeleteAgent={deleteAgent}
+				isCreatingAgentRepoId={isCreatingAgentRepoId}
+				isDeletingAgentId={isDeletingAgentId}
 				onReposChange={loadRepos}
 				onGroupsChange={loadGroups}
 				onCheckRepoUpdates={() => void checkRepoUpdates(true)}
@@ -785,22 +857,14 @@ function App() {
 						</div>
 						{activeRepoViewTab === 'agent' ? (
 							<RepoAgentsView
-								agents={agents}
-								isLoading={isAgentsLoading}
-								error={agentsError}
-								isCreating={isCreatingAgent}
-								selectedAgentId={selectedAgentId}
+								selectedAgent={selectedAgent}
 								prompt={agentPrompt}
 								messages={selectedAgentMessages}
 								logs={selectedAgentLogs}
 								isRunning={isAgentRunning}
-								onSelectAgent={setSelectedAgentId}
 								onPromptChange={setAgentPrompt}
 								onRunPrompt={() => void runPromptOnAgent()}
 								onStopRun={() => void stopAgentRun()}
-								onCreateAgent={createAgent}
-								onDeleteAgent={deleteAgent}
-								isDeletingAgentId={isDeletingAgentId}
 							/>
 						) : (
 							<GitHistoryView
