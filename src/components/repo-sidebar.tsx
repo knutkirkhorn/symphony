@@ -56,6 +56,7 @@ import {
 } from '@/components/ui/sidebar';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import type {Group, Repo, RepoSyncStatus} from '@/lib/types';
+import {cn} from '@/lib/utils';
 import {invoke} from '@tauri-apps/api/core';
 import {
 	ArrowRightLeft,
@@ -173,7 +174,11 @@ function DraggableRepoItem({
 						onClick={() => onRepoSelect(repo)}
 						onPointerDown={event => onPointerDragStart(event, repo)}
 						title={repo.path}
-						className="select-none cursor-grab active:cursor-grabbing"
+						className={cn(
+							'select-none cursor-grab active:cursor-grabbing',
+							isActive &&
+								'bg-primary/12 text-foreground font-semibold ring-1 ring-primary/35 shadow-sm [&>svg]:text-primary',
+						)}
 					>
 						<FolderGit2 className="size-4" />
 						<span>{repo.name}</span>
