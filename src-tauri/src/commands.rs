@@ -142,8 +142,11 @@ pub fn clone_repo(
 #[tauri::command]
 pub fn remove_repo(db: State<'_, Database>, id: i64) -> Result<(), String> {
     let conn = db.conn.lock().map_err(|e| e.to_string())?;
-    conn.execute("DELETE FROM agents WHERE repo_id = ?1", rusqlite::params![id])
-        .map_err(|e| e.to_string())?;
+    conn.execute(
+        "DELETE FROM agents WHERE repo_id = ?1",
+        rusqlite::params![id],
+    )
+    .map_err(|e| e.to_string())?;
     conn.execute("DELETE FROM repos WHERE id = ?1", rusqlite::params![id])
         .map_err(|e| e.to_string())?;
     Ok(())
@@ -797,10 +800,7 @@ pub fn run_repo_agent(
 }
 
 #[tauri::command]
-pub fn stop_repo_agent(
-    app: AppHandle,
-    state: State<'_, AgentRuntimeState>,
-) -> Result<(), String> {
+pub fn stop_repo_agent(app: AppHandle, state: State<'_, AgentRuntimeState>) -> Result<(), String> {
     let pid = {
         let guard = state.pid.lock().map_err(|e| e.to_string())?;
         *guard
@@ -886,13 +886,52 @@ fn create_cursor_agent_command(
 pub fn open_in_cursor(path: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
-        std::process::Command::new("cmd")
-            .args(["/c", "cursor", &path])
-            .spawn()
-            .map_err(|e| format!("Failed to open in Cursor: {}", e))?;
+        // Prefer launching the Cursor desktop app directly, and fall back to the CLI
+        // if the desktop executable cannot be found.
+        let local_app_data = std::env::var("LOCALAPPDATA")
+            .map_err(|_| "LOCALAPPDATA env var not found".to_string())?;
+        let cursor_exe_path = Path::new(&local_app_data)
+            .join("Programs")
+            .join("cursor")
+            .join("Cursor.exe");
+
+        if cursor_exe_path.exists() {
+            std::process::Command::new(cursor_exe_path)
+                .arg(&path)
+                .spawn()
+                .map_err(|e| format!("Failed to open in Cursor app: {}", e))?;
+        } else {
+            // Fallback to the CLI for older / non-standard installs.
+            std::process::Command::new("cmd")
+                .args(["/c", "cursor", &path])
+                .spawn()
+                .map_err(|e| format!("Failed to open in Cursor (CLI fallback): {}", e))?;
+        }
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
     {
+        // On macOS, ask the system to open the folder with the Cursor app.
+        // This uses the GUI app directly instead of relying on the `cursor` CLI.
+        let open_result = std::process::Command::new("open")
+            .args(["-a", "Cursor", &path])
+            .spawn();
+
+        if let Err(e) = open_result {
+            // Fallback to the CLI if `open` is not available or fails to spawn.
+            std::process::Command::new("cursor")
+                .arg(&path)
+                .spawn()
+                .map_err(|cli_err| {
+                    format!(
+                        "Failed to open in Cursor app (open error: {e}); CLI fallback also failed: {cli_err}"
+                    )
+                })?;
+        }
+    }
+    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+    {
+        // On Linux and other Unix-like systems, use the `cursor` binary.
+        // This is typically the desktop app launcher, not just a CLI.
         std::process::Command::new("cursor")
             .arg(&path)
             .spawn()
