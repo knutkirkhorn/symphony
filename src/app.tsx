@@ -18,7 +18,12 @@ import type {
 import {invoke} from '@tauri-apps/api/core';
 import {listen} from '@tauri-apps/api/event';
 import {openPath, openUrl} from '@tauri-apps/plugin-opener';
-import {ExternalLink, FolderOpen, SquareTerminal} from 'lucide-react';
+import {
+	ExternalLink,
+	FolderOpen,
+	GitBranch,
+	SquareTerminal,
+} from 'lucide-react';
 import {useCallback, useEffect, useRef, useState} from 'react';
 import {toast} from 'sonner';
 
@@ -137,6 +142,9 @@ function App() {
 	const [groups, setGroups] = useState<Group[]>([]);
 	const [selectedRepo, setSelectedRepo] = useState<Repo | null>(null);
 	const [remoteInfo, setRemoteInfo] = useState<RemoteInfo | null>(null);
+	const [selectedRepoBranch, setSelectedRepoBranch] = useState<string | null>(
+		null,
+	);
 	const [activeRepoViewTab, setActiveRepoViewTab] =
 		useState<RepoViewTab>('agent');
 	const [agents, setAgents] = useState<Agent[]>([]);
@@ -167,6 +175,7 @@ function App() {
 		Record<number, RepoSyncStatus>
 	>({});
 	const [isCheckingRepoUpdates, setIsCheckingRepoUpdates] = useState(false);
+	const remoteRequestIdReference = useRef(0);
 	const historyRequestIdReference = useRef(0);
 	const diffRequestIdReference = useRef(0);
 	const activeRunIdReference = useRef<string | null>(null);
@@ -317,6 +326,7 @@ function App() {
 	useEffect(() => {
 		if (!selectedRepo) {
 			setRemoteInfo(null);
+			setSelectedRepoBranch(null);
 			setActiveRepoViewTab('agent');
 			setSelectedAgentId(null);
 			setAgentPrompt('');
@@ -328,15 +338,21 @@ function App() {
 			return;
 		}
 
+		remoteRequestIdReference.current += 1;
+		const requestId = remoteRequestIdReference.current;
+
 		(async () => {
-			try {
-				const info = await invoke<RemoteInfo | null>('get_remote_url', {
+			const [info, branch] = await Promise.all([
+				invoke<RemoteInfo | null>('get_remote_url', {
 					path: selectedRepo.path,
-				});
-				setRemoteInfo(info);
-			} catch {
-				setRemoteInfo(null);
-			}
+				}).catch(() => null),
+				invoke<string>('get_current_branch', {
+					path: selectedRepo.path,
+				}).catch(() => null),
+			]);
+			if (requestId !== remoteRequestIdReference.current) return;
+			setRemoteInfo(info);
+			setSelectedRepoBranch(branch);
 		})();
 	}, [selectedRepo]);
 
@@ -667,6 +683,12 @@ function App() {
 								<p className="truncate text-sm text-muted-foreground">
 									{selectedRepo.path}
 								</p>
+								{selectedRepoBranch && (
+									<p className="mt-1 inline-flex items-center gap-1 truncate text-sm text-muted-foreground">
+										<GitBranch className="size-3.5 shrink-0" />
+										<span className="truncate">{selectedRepoBranch}</span>
+									</p>
+								)}
 							</div>
 							<div className="flex items-center gap-2 flex-wrap">
 								<Button

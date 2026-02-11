@@ -329,6 +329,30 @@ pub fn get_remote_url(path: String) -> Result<Option<RemoteInfo>, String> {
 }
 
 #[tauri::command]
+pub fn get_current_branch(path: String) -> Result<String, String> {
+    let branch = run_git_command(&path, &["branch".to_string(), "--show-current".to_string()])?
+        .trim()
+        .to_string();
+
+    if !branch.is_empty() {
+        return Ok(branch);
+    }
+
+    let short_head = run_git_command(
+        &path,
+        &[
+            "rev-parse".to_string(),
+            "--short".to_string(),
+            "HEAD".to_string(),
+        ],
+    )?
+    .trim()
+    .to_string();
+
+    Ok(format!("detached@{}", short_head))
+}
+
+#[tauri::command]
 pub fn list_git_history(path: String, limit: Option<u32>) -> Result<Vec<GitCommit>, String> {
     let clamped_limit = limit.unwrap_or(50).clamp(1, 200);
     let output = run_git_command(

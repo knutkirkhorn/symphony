@@ -3,9 +3,9 @@ mod db;
 
 use commands::{
     add_repo, clone_repo, create_agent, create_group, delete_group, get_commit_changes,
-    get_remote_url, get_repo_sync_status, list_agents, list_git_history, list_groups, list_repos,
-    move_repo_to_group, open_in_cursor, pull_repo, remove_repo, rename_group, run_repo_agent,
-    stop_repo_agent, AgentRuntimeState,
+    get_current_branch, get_remote_url, get_repo_sync_status, list_agents, list_git_history,
+    list_groups, list_repos, move_repo_to_group, open_in_cursor, pull_repo, remove_repo,
+    rename_group, run_repo_agent, stop_repo_agent, AgentRuntimeState,
 };
 use db::Database;
 use std::sync::Mutex;
@@ -28,6 +28,7 @@ pub fn run() {
             remove_repo,
             open_in_cursor,
             get_remote_url,
+            get_current_branch,
             get_repo_sync_status,
             pull_repo,
             list_git_history,
