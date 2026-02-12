@@ -108,6 +108,7 @@ type RepoSidebarProperties = {
 	onPullRepo: (repo: Repo) => Promise<void>;
 	isSettingsActive: boolean;
 	onSettingsClick: () => void;
+	isSimulatorMode: boolean;
 };
 
 type LocalBranch = {
@@ -1378,6 +1379,7 @@ export function RepoSidebar({
 	onPullRepo,
 	isSettingsActive,
 	onSettingsClick,
+	isSimulatorMode,
 }: RepoSidebarProperties) {
 	const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
 	const [isAddRepoOpen, setIsAddRepoOpen] = useState(false);
@@ -1487,7 +1489,20 @@ export function RepoSidebar({
 		<Sidebar>
 			<SidebarHeader className="border-b border-sidebar-border">
 				<div className="flex items-center justify-between">
-					<span className="text-sm font-semibold">Repositories</span>
+					<div className="flex items-center gap-2">
+						<span className="text-sm font-semibold">Repositories</span>
+						{isSimulatorMode && (
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<span
+										aria-label="Simulator mode"
+										className="inline-flex size-2 rounded-full bg-yellow-400"
+									/>
+								</TooltipTrigger>
+								<TooltipContent side="top">Simulator mode</TooltipContent>
+							</Tooltip>
+						)}
+					</div>
 					<div className="flex items-center gap-0.5">
 						<Tooltip>
 							<TooltipTrigger asChild>

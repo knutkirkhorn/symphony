@@ -3,6 +3,7 @@ use rusqlite::Connection;
 use serde::Serialize;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
+use std::process::Command;
 use std::process::Stdio;
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -957,6 +958,7 @@ pub fn run_repo_agent(
     agent_id: i64,
     run_id: String,
     force_approve: Option<bool>,
+    simulate_mode: Option<bool>,
 ) -> Result<(), String> {
     let trimmed_prompt = prompt.trim();
     if trimmed_prompt.is_empty() {
@@ -975,7 +977,12 @@ pub fn run_repo_agent(
         return Err("Repository path does not exist".to_string());
     }
 
-    let mut process = create_cursor_agent_command(trimmed_prompt, force_approve.unwrap_or(true))?;
+    let use_simulator = simulate_mode.unwrap_or(false);
+    let mut process = if use_simulator {
+        create_simulator_agent_command(trimmed_prompt, &repo_path)?
+    } else {
+        create_cursor_agent_command(trimmed_prompt, force_approve.unwrap_or(true))?
+    };
     process.current_dir(repo);
     process.stdin(Stdio::null());
     process.stdout(Stdio::piped());
@@ -989,7 +996,13 @@ pub fn run_repo_agent(
 
     let mut child = process
         .spawn()
-        .map_err(|e| format!("Failed to start Cursor agent: {}", e))?;
+        .map_err(|e| {
+            if use_simulator {
+                format!("Failed to start simulator agent: {}", e)
+            } else {
+                format!("Failed to start Cursor agent: {}", e)
+            }
+        })?;
 
     let stdout = child
         .stdout
@@ -1136,6 +1149,43 @@ fn create_cursor_agent_command(
         }
         Ok(command)
     }
+}
+
+fn create_simulator_agent_command(prompt: &str, repo_path: &str) -> Result<Command, String> {
+    let script_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("scripts")
+        .join("agent-simulator.mjs");
+    if !script_path.exists() {
+        return Err(format!(
+            "Simulator script not found at {}",
+            script_path.display()
+        ));
+    }
+
+    let script_path_string = script_path.to_string_lossy().to_string();
+    if command_exists("bun") {
+        let mut command = Command::new("bun");
+        command.args([script_path_string.as_str(), prompt, repo_path]);
+        return Ok(command);
+    }
+
+    if command_exists("node") {
+        let mut command = Command::new("node");
+        command.args([script_path_string.as_str(), prompt, repo_path]);
+        return Ok(command);
+    }
+
+    Err("Simulator mode requires `bun` or `node` in PATH".to_string())
+}
+
+fn command_exists(command: &str) -> bool {
+    Command::new(command)
+        .arg("--version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
 }
 
 #[tauri::command]

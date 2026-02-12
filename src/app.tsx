@@ -56,6 +56,7 @@ function isMacOS() {
 }
 
 const SHORTCUT_MODIFIER_LABEL = isMacOS() ? 'Cmd' : 'Ctrl';
+const SIMULATOR_MODE_STORAGE_KEY = 'symphony:simulator-mode';
 
 function randomRunId() {
 	if ('randomUUID' in crypto) return crypto.randomUUID();
@@ -154,6 +155,13 @@ function App() {
 	const [appVersion, setAppVersion] = useState<string | null>(null);
 	const [isVersionLoading, setIsVersionLoading] = useState(true);
 	const [versionError, setVersionError] = useState<string | null>(null);
+	const [isSimulatorMode, setIsSimulatorMode] = useState<boolean>(() => {
+		try {
+			return localStorage.getItem(SIMULATOR_MODE_STORAGE_KEY) === 'true';
+		} catch {
+			return false;
+		}
+	});
 	const [agentsByRepoId, setAgentsByRepoId] = useState<Record<number, Agent[]>>(
 		{},
 	);
@@ -362,6 +370,17 @@ function App() {
 			}
 		})();
 	}, []);
+
+	useEffect(() => {
+		try {
+			localStorage.setItem(
+				SIMULATOR_MODE_STORAGE_KEY,
+				isSimulatorMode ? 'true' : 'false',
+			);
+		} catch {
+			// Ignore storage errors (private mode / restricted environments).
+		}
+	}, [isSimulatorMode]);
 
 	useEffect(() => {
 		void checkRepoUpdates(false);
@@ -739,6 +758,7 @@ function App() {
 				agentId: selectedAgentId,
 				runId,
 				forceApprove: true,
+				simulateMode: isSimulatorMode,
 			});
 		} catch (error) {
 			appendAgentMessage(selectedAgentId, {
@@ -754,6 +774,7 @@ function App() {
 		selectedAgentId,
 		agentPrompt,
 		isAgentRunning,
+		isSimulatorMode,
 		appendAgentMessage,
 	]);
 
@@ -881,6 +902,7 @@ function App() {
 				onPullRepo={pullRepo}
 				isSettingsActive={activeView === 'settings'}
 				onSettingsClick={() => setActiveView('settings')}
+				isSimulatorMode={isSimulatorMode}
 			/>
 			<SidebarInset>
 				{activeView === 'settings' ? (
@@ -888,6 +910,8 @@ function App() {
 						version={appVersion}
 						isVersionLoading={isVersionLoading}
 						versionError={versionError}
+						simulatorMode={isSimulatorMode}
+						onSimulatorModeChange={setIsSimulatorMode}
 					/>
 				) : repos.length === 0 ? (
 					<EmptyState onReposChange={loadRepos} />
