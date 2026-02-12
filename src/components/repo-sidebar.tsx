@@ -426,7 +426,7 @@ function DraggableRepoItem({
 						}}
 					>
 						<GitBranch className="size-4" />
-						Manage branches
+						Change branch
 					</ContextMenuItem>
 					<ContextMenuSeparator />
 					{(moveTargets.length > 0 || canMoveToUngrouped) && (
@@ -725,7 +725,7 @@ function DraggableRepoItem({
 			>
 				<DialogContent>
 					<DialogHeader>
-						<DialogTitle>Manage branches</DialogTitle>
+						<DialogTitle>Change branch</DialogTitle>
 						<DialogDescription>
 							Switch, create, and remove local branches for{' '}
 							<span className="font-medium text-foreground">{repo.name}</span>.
