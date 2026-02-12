@@ -250,7 +250,6 @@ function DraggableRepoItem({
 						isActive={isActive}
 						onClick={() => {
 							onRepoSelect(repo);
-							setIsAgentsOpen(true);
 						}}
 						onPointerDown={event => onPointerDragStart(event, repo)}
 						title={repo.path}
