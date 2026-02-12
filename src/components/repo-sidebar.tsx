@@ -60,9 +60,9 @@ import {
 	SidebarMenuSubItem,
 } from '@/components/ui/sidebar';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
+import {invoke} from '@/lib/host-bridge';
 import type {Agent, Group, Repo, RepoSyncStatus} from '@/lib/types';
 import {cn} from '@/lib/utils';
-import {invoke} from '@tauri-apps/api/core';
 import {
 	ArrowRightLeft,
 	Bot,
@@ -596,14 +596,16 @@ function DraggableRepoItem({
 															<LoaderCircle
 																className={cn(
 																	'size-3.5 animate-spin',
-																	selectedAgentId === agent.id && 'text-primary',
+																	selectedAgentId === agent.id &&
+																		'text-primary',
 																)}
 															/>
 														) : (
 															<Bot
 																className={cn(
 																	'size-3.5',
-																	selectedAgentId === agent.id && 'text-primary',
+																	selectedAgentId === agent.id &&
+																		'text-primary',
 																)}
 															/>
 														)}

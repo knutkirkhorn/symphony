@@ -8,8 +8,8 @@ import {
 	DialogTitle,
 } from '@/components/ui/dialog';
 import {Input} from '@/components/ui/input';
+import {invoke, isTauriRuntime} from '@/lib/host-bridge';
 import {cn} from '@/lib/utils';
-import {invoke} from '@tauri-apps/api/core';
 import {open as openDialog} from '@tauri-apps/plugin-dialog';
 import {FolderOpen, GitBranchPlus} from 'lucide-react';
 import {useEffect, useState, type FormEvent} from 'react';
@@ -33,6 +33,7 @@ export function AddRepoDialog({
 	const [mode, setMode] = useState<AddRepoMode>('local');
 	const [cloneUrl, setCloneUrl] = useState('');
 	const [destinationParent, setDestinationParent] = useState('');
+	const [localRepoPath, setLocalRepoPath] = useState('');
 	const [isSubmitting, setIsSubmitting] = useState(false);
 
 	useEffect(() => {
@@ -40,10 +41,12 @@ export function AddRepoDialog({
 		setMode('local');
 		setCloneUrl('');
 		setDestinationParent('');
+		setLocalRepoPath('');
 		setIsSubmitting(false);
 	}, [open]);
 
 	const handleOpenLocalRepo = async () => {
+		if (!isTauriRuntime) return;
 		const selected = await openDialog({
 			directory: true,
 			multiple: false,
@@ -67,7 +70,25 @@ export function AddRepoDialog({
 		}
 	};
 
+	const handleAddLocalRepoByPath = async (event: FormEvent) => {
+		event.preventDefault();
+		const trimmedPath = localRepoPath.trim();
+		if (!trimmedPath) return;
+		setIsSubmitting(true);
+		try {
+			await invoke('add_repo', {path: trimmedPath, groupId});
+			toast.success('Repository added successfully');
+			onReposChange();
+			onOpenChange(false);
+		} catch (error) {
+			toast.error(String(error));
+		} finally {
+			setIsSubmitting(false);
+		}
+	};
+
 	const handlePickDestination = async () => {
+		if (!isTauriRuntime) return;
 		const selected = await openDialog({
 			directory: true,
 			multiple: false,
@@ -135,17 +156,47 @@ export function AddRepoDialog({
 				{mode === 'local' ? (
 					<div className="space-y-2">
 						<p className="text-sm text-muted-foreground">
-							Choose a local folder that already contains a Git repository.
+							{isTauriRuntime
+								? 'Choose a local folder that already contains a Git repository.'
+								: 'Enter a repository path from the host machine.'}
 						</p>
-						<Button
-							type="button"
-							className="w-full"
-							onClick={() => void handleOpenLocalRepo()}
-							disabled={isSubmitting}
-						>
-							<FolderOpen className="size-4" />
-							Select repository
-						</Button>
+						{isTauriRuntime ? (
+							<Button
+								type="button"
+								className="w-full"
+								onClick={() => void handleOpenLocalRepo()}
+								disabled={isSubmitting}
+							>
+								<FolderOpen className="size-4" />
+								Select repository
+							</Button>
+						) : (
+							<form className="space-y-3" onSubmit={handleAddLocalRepoByPath}>
+								<Input
+									value={localRepoPath}
+									onChange={event => setLocalRepoPath(event.target.value)}
+									placeholder="C:\\path\\to\\repo"
+									disabled={isSubmitting}
+									autoFocus
+								/>
+								<DialogFooter>
+									<Button
+										type="button"
+										variant="outline"
+										onClick={() => onOpenChange(false)}
+										disabled={isSubmitting}
+									>
+										Cancel
+									</Button>
+									<Button
+										type="submit"
+										disabled={isSubmitting || !localRepoPath.trim()}
+									>
+										Add repository
+									</Button>
+								</DialogFooter>
+							</form>
+						)}
 					</div>
 				) : (
 					<form className="space-y-3" onSubmit={handleCloneRepo}>
@@ -168,7 +219,7 @@ export function AddRepoDialog({
 								type="button"
 								variant="outline"
 								onClick={() => void handlePickDestination()}
-								disabled={isSubmitting}
+								disabled={isSubmitting || !isTauriRuntime}
 							>
 								Browse
 							</Button>

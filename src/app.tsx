@@ -7,6 +7,7 @@ import {SettingsView} from '@/components/settings-view';
 import {Button} from '@/components/ui/button';
 import {SidebarInset, SidebarProvider} from '@/components/ui/sidebar';
 import {Toaster} from '@/components/ui/sonner';
+import {getVersion, invoke, listen, openPath, openUrl} from '@/lib/host-bridge';
 import type {
 	Agent,
 	AgentConversationEntry,
@@ -16,10 +17,6 @@ import type {
 	Repo,
 	RepoSyncStatus,
 } from '@/lib/types';
-import {getVersion} from '@tauri-apps/api/app';
-import {invoke} from '@tauri-apps/api/core';
-import {listen} from '@tauri-apps/api/event';
-import {openPath, openUrl} from '@tauri-apps/plugin-opener';
 import {
 	ExternalLink,
 	FolderOpen,

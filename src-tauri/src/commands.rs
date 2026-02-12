@@ -1,6 +1,8 @@
 use crate::db::Database;
+use crate::host_api::HostBridgeState;
 use rusqlite::Connection;
 use serde::Serialize;
+use serde_json::to_value;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::process::Command;
@@ -51,6 +53,14 @@ pub struct AgentDonePayload {
     pub run_id: String,
     pub agent_id: i64,
     pub success: bool,
+}
+
+fn emit_runtime_event<T: Serialize + Clone>(app: &AppHandle, event_name: &str, payload: T) {
+    let _ = app.emit(event_name, payload.clone());
+    if let Some(bridge_state) = app.try_state::<HostBridgeState>() {
+        let json_payload = to_value(payload).unwrap_or(serde_json::Value::Null);
+        bridge_state.send_event(event_name, json_payload);
+    }
 }
 
 #[tauri::command]
@@ -1025,27 +1035,29 @@ pub fn run_repo_agent(
         let stderr_handle = std::thread::spawn(move || {
             let reader = BufReader::new(stderr);
             for line in reader.lines().map_while(Result::ok) {
-                let _ = app_for_stderr.emit(
-                    "repo-agent-stderr",
-                    AgentStreamPayload {
-                        run_id: run_id_for_stderr.clone(),
-                        agent_id,
-                        line,
-                    },
-                );
+                    emit_runtime_event(
+                        &app_for_stderr,
+                        "repo-agent-stderr",
+                        AgentStreamPayload {
+                            run_id: run_id_for_stderr.clone(),
+                            agent_id,
+                            line,
+                        },
+                    );
             }
         });
 
         let reader = BufReader::new(stdout);
         for line in reader.lines().map_while(Result::ok) {
-            let _ = app_for_worker.emit(
-                "repo-agent-stdout",
-                AgentStreamPayload {
-                    run_id: run_id.clone(),
-                    agent_id,
-                    line,
-                },
-            );
+                emit_runtime_event(
+                    &app_for_worker,
+                    "repo-agent-stdout",
+                    AgentStreamPayload {
+                        run_id: run_id.clone(),
+                        agent_id,
+                        line,
+                    },
+                );
         }
 
         let _ = stderr_handle.join();
@@ -1055,14 +1067,15 @@ pub fn run_repo_agent(
             *pid_guard = None;
         }
 
-        let _ = app_for_worker.emit(
-            "repo-agent-done",
-            AgentDonePayload {
-                run_id,
-                agent_id,
-                success,
-            },
-        );
+            emit_runtime_event(
+                &app_for_worker,
+                "repo-agent-done",
+                AgentDonePayload {
+                    run_id,
+                    agent_id,
+                    success,
+                },
+            );
     });
 
     Ok(())
@@ -1110,7 +1123,7 @@ pub fn stop_repo_agent(app: AppHandle, state: State<'_, AgentRuntimeState>) -> R
         *guard = None;
     }
 
-    let _ = app.emit("repo-agent-force-stop", true);
+    emit_runtime_event(&app, "repo-agent-force-stop", true);
     Ok(())
 }
 
@@ -1242,6 +1255,32 @@ pub fn open_in_cursor(path: String) -> Result<(), String> {
             .arg(&path)
             .spawn()
             .map_err(|e| format!("Failed to open in Cursor: {}", e))?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn open_in_file_manager(path: String) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(path)
+            .spawn()
+            .map_err(|error| format!("Failed to open in Explorer: {}", error))?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(path)
+            .spawn()
+            .map_err(|error| format!("Failed to open in Finder: {}", error))?;
+    }
+    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(path)
+            .spawn()
+            .map_err(|error| format!("Failed to open in file manager: {}", error))?;
     }
     Ok(())
 }
