@@ -6,7 +6,11 @@ import {RepoSidebar} from '@/components/repo-sidebar';
 import {SettingsView} from '@/components/settings-view';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
-import {SidebarInset, SidebarProvider} from '@/components/ui/sidebar';
+import {
+	SidebarInset,
+	SidebarProvider,
+	SidebarTrigger,
+} from '@/components/ui/sidebar';
 import {Toaster} from '@/components/ui/sonner';
 import {
 	getVersion,
@@ -1008,6 +1012,14 @@ function App() {
 				isSimulatorMode={isSimulatorMode}
 			/>
 			<SidebarInset>
+				<div className="sticky top-0 z-20 flex items-center gap-2 border-b bg-background/95 px-3 py-2 backdrop-blur md:hidden">
+					<SidebarTrigger className="size-8" />
+					<p className="truncate text-sm font-medium">
+						{activeView === 'settings'
+							? 'Settings'
+							: selectedRepo?.name ?? 'Repositories'}
+					</p>
+				</div>
 				{activeView === 'settings' ? (
 					<SettingsView
 						version={appVersion}
