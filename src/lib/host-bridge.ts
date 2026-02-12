@@ -1,3 +1,4 @@
+/* eslint-disable unicorn/no-useless-undefined */
 import {getVersion as getTauriVersion} from '@tauri-apps/api/app';
 import {invoke as tauriInvoke} from '@tauri-apps/api/core';
 import {listen as tauriListen} from '@tauri-apps/api/event';
@@ -30,13 +31,39 @@ const inferredHostName =
 		: globalThis.window.location.hostname;
 const resolvedHostBaseUrl =
 	hostBaseUrl || `http://${inferredHostName || '127.0.0.1'}:48678`;
+const WEB_AUTH_TOKEN_STORAGE_KEY = 'symphony:web-auth-token';
 
 const listenersByEvent = new Map<string, Set<EventListener<unknown>>>();
 let eventSource: EventSource | undefined;
 let lastKnownEventUrl = '';
+let webAuthTokenCache: string | undefined;
+
+function loadStoredWebAuthToken() {
+	if (isTauriRuntime) return undefined;
+	try {
+		const token = localStorage.getItem(WEB_AUTH_TOKEN_STORAGE_KEY) ?? undefined;
+		return token?.trim() || undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+function getRequiredWebAuthToken(): string {
+	if (isTauriRuntime) {
+		throw new Error('Web auth token is not used in Tauri runtime');
+	}
+	if (webAuthTokenCache === undefined) {
+		webAuthTokenCache = loadStoredWebAuthToken();
+	}
+	if (!webAuthTokenCache) {
+		throw new Error('Authentication required');
+	}
+	return webAuthTokenCache;
+}
 
 function ensureEventSource() {
-	const nextEventUrl = `${resolvedHostBaseUrl}/api/events`;
+	const token = getRequiredWebAuthToken();
+	const nextEventUrl = `${resolvedHostBaseUrl}/api/events?token=${encodeURIComponent(token)}`;
 	if (eventSource && lastKnownEventUrl === nextEventUrl) return;
 	if (eventSource) eventSource.close();
 
@@ -97,11 +124,14 @@ export async function invoke<T>(
 				: undefined;
 		return tauriInvoke<T>(command, tauriArguments);
 	}
+	const token = getRequiredWebAuthToken();
 
 	const response = await fetch(`${resolvedHostBaseUrl}/api/invoke`, {
 		method: 'POST',
 		headers: {
 			'content-type': 'application/json',
+			authorization: `Bearer ${token}`,
+			'x-symphony-token': token,
 		},
 		body: JSON.stringify({
 			command,
@@ -132,13 +162,51 @@ export async function listen<T>(
 
 export async function getVersion(): Promise<string> {
 	if (isTauriRuntime) return getTauriVersion();
-	try {
-		const response = await fetch(`${resolvedHostBaseUrl}/health`);
-		if (response.ok) return 'hosted-web';
-	} catch {
-		// Fall through and keep a stable fallback version string.
+	return 'hosted-web';
+}
+
+export function getWebAuthToken() {
+	if (isTauriRuntime) return undefined;
+	if (webAuthTokenCache === undefined) {
+		webAuthTokenCache = loadStoredWebAuthToken();
 	}
-	return 'web';
+	return webAuthTokenCache;
+}
+
+export function setWebAuthToken(token: string | undefined) {
+	if (isTauriRuntime) return;
+	webAuthTokenCache = token?.trim() || undefined;
+	if (eventSource) {
+		eventSource.close();
+		eventSource = undefined;
+		lastKnownEventUrl = '';
+	}
+	try {
+		if (webAuthTokenCache) {
+			localStorage.setItem(WEB_AUTH_TOKEN_STORAGE_KEY, webAuthTokenCache);
+		} else {
+			localStorage.removeItem(WEB_AUTH_TOKEN_STORAGE_KEY);
+		}
+	} catch {
+		// Ignore storage errors in restricted environments.
+	}
+}
+
+export async function verifyWebAuthToken(token: string): Promise<boolean> {
+	if (isTauriRuntime) return true;
+	const normalizedToken = token.trim();
+	if (!normalizedToken) return false;
+	try {
+		const response = await fetch(`${resolvedHostBaseUrl}/api/auth/verify`, {
+			headers: {
+				authorization: `Bearer ${normalizedToken}`,
+				'x-symphony-token': normalizedToken,
+			},
+		});
+		return response.ok;
+	} catch {
+		return false;
+	}
 }
 
 export async function openUrl(url: string): Promise<void> {

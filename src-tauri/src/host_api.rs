@@ -7,12 +7,17 @@ use crate::commands::{
     switch_branch, AgentRuntimeState,
 };
 use crate::db::Database;
-use axum::extract::State as AxumState;
+use axum::extract::{Query, State as AxumState};
+use axum::http::header::AUTHORIZATION;
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::Response;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::Json;
 use axum::Router;
+use rand::distr::Alphanumeric;
+use rand::Rng;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -58,6 +63,7 @@ impl HostBridgeState {
 struct HttpBridgeAppState {
     app: tauri::AppHandle,
     events: HostBridgeState,
+    auth_token: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -73,6 +79,11 @@ struct InvokeResponse {
     ok: bool,
     data: Option<Value>,
     error: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct EventQueryParameters {
+    token: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -212,6 +223,35 @@ struct MoveRepoToGroupArgs {
 fn deserialize_args<T: DeserializeOwned>(value: Option<Value>) -> Result<T, String> {
     let raw = value.unwrap_or_else(|| json!({}));
     serde_json::from_value(raw).map_err(|error| format!("Invalid args: {}", error))
+}
+
+fn extract_bearer_token(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get(AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+        .or_else(|| {
+            headers
+                .get("x-symphony-token")
+                .and_then(|value| value.to_str().ok())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToString::to_string)
+        })
+}
+
+fn is_authorized(headers: &HeaderMap, query_token: Option<&str>, expected_token: &str) -> bool {
+    let header_token = extract_bearer_token(headers);
+    let token = header_token.or_else(|| {
+        query_token
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToString::to_string)
+    });
+    token.as_deref() == Some(expected_token)
 }
 
 fn invoke_dispatch(
@@ -397,8 +437,20 @@ fn invoke_dispatch(
 
 async fn invoke_handler(
     AxumState(state): AxumState<HttpBridgeAppState>,
+    headers: HeaderMap,
     Json(request): Json<InvokeRequest>,
 ) -> impl IntoResponse {
+    if !is_authorized(&headers, None, &state.auth_token) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(InvokeResponse {
+                ok: false,
+                data: None,
+                error: Some("Unauthorized".to_string()),
+            }),
+        );
+    }
+
     let app = state.app.clone();
     let command_name = request.command;
     let args = request.args;
@@ -407,41 +459,74 @@ async fn invoke_handler(
         tauri::async_runtime::spawn_blocking(move || invoke_dispatch(&app, &command_name, args))
             .await;
     match dispatch_result {
-        Ok(Ok(data)) => Json(InvokeResponse {
-            ok: true,
-            data: Some(data),
-            error: None,
-        }),
-        Ok(Err(error)) => Json(InvokeResponse {
-            ok: false,
-            data: None,
-            error: Some(error),
-        }),
-        Err(error) => Json(InvokeResponse {
-            ok: false,
-            data: None,
-            error: Some(format!("Bridge task failed: {}", error)),
-        }),
+        Ok(Ok(data)) => (
+            StatusCode::OK,
+            Json(InvokeResponse {
+                ok: true,
+                data: Some(data),
+                error: None,
+            }),
+        ),
+        Ok(Err(error)) => (
+            StatusCode::OK,
+            Json(InvokeResponse {
+                ok: false,
+                data: None,
+                error: Some(error),
+            }),
+        ),
+        Err(error) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(InvokeResponse {
+                ok: false,
+                data: None,
+                error: Some(format!("Bridge task failed: {}", error)),
+            }),
+        ),
     }
 }
 
-async fn health_handler() -> impl IntoResponse {
-    Json(json!({ "ok": true }))
+async fn health_handler(
+    AxumState(state): AxumState<HttpBridgeAppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if !is_authorized(&headers, None, &state.auth_token) {
+        return (StatusCode::UNAUTHORIZED, Json(json!({ "ok": false })));
+    }
+    (StatusCode::OK, Json(json!({ "ok": true })))
 }
 
 async fn events_handler(
     AxumState(state): AxumState<HttpBridgeAppState>,
-) -> Sse<impl tokio_stream::Stream<Item = Result<Event, Infallible>>> {
+    headers: HeaderMap,
+    Query(query): Query<EventQueryParameters>,
+) -> Response {
+    if !is_authorized(&headers, query.token.as_deref(), &state.auth_token) {
+        return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+    }
+
     let stream = BroadcastStream::new(state.events.subscribe()).filter_map(|message| {
         let event = match message {
             Ok(payload) => payload,
             Err(_) => return None,
         };
         let data = serde_json::to_string(&event.payload).unwrap_or_else(|_| "null".to_string());
-        Some(Ok(Event::default().event(event.event).data(data)))
+        Some(Ok::<Event, Infallible>(
+            Event::default().event(event.event).data(data),
+        ))
     });
 
-    Sse::new(stream).keep_alive(KeepAlive::default())
+    Sse::new(stream).keep_alive(KeepAlive::default()).into_response()
+}
+
+async fn verify_auth_handler(
+    AxumState(state): AxumState<HttpBridgeAppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if !is_authorized(&headers, None, &state.auth_token) {
+        return (StatusCode::UNAUTHORIZED, Json(json!({ "ok": false })));
+    }
+    (StatusCode::OK, Json(json!({ "ok": true })))
 }
 
 pub fn start_host_bridge(app: tauri::AppHandle, events: HostBridgeState) {
@@ -457,11 +542,28 @@ pub fn start_host_bridge(app: tauri::AppHandle, events: HostBridgeState) {
             return;
         }
     };
+    let auth_token = std::env::var("SYMPHONY_HOST_TOKEN").unwrap_or_else(|_| {
+        let generated: String = rand::rng()
+            .sample_iter(Alphanumeric)
+            .take(40)
+            .map(char::from)
+            .collect();
+        println!(
+            "SYMPHONY_HOST_TOKEN was not set. Generated session token: {}",
+            generated
+        );
+        generated
+    });
 
     tauri::async_runtime::spawn(async move {
-        let state = HttpBridgeAppState { app, events };
+        let state = HttpBridgeAppState {
+            app,
+            events,
+            auth_token,
+        };
         let app_router = Router::new()
             .route("/health", get(health_handler))
+            .route("/api/auth/verify", get(verify_auth_handler))
             .route("/api/invoke", post(invoke_handler))
             .route("/api/events", get(events_handler))
             .layer(

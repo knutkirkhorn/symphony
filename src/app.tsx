@@ -5,9 +5,20 @@ import {RepoAgentsView} from '@/components/repo-agents-view';
 import {RepoSidebar} from '@/components/repo-sidebar';
 import {SettingsView} from '@/components/settings-view';
 import {Button} from '@/components/ui/button';
+import {Input} from '@/components/ui/input';
 import {SidebarInset, SidebarProvider} from '@/components/ui/sidebar';
 import {Toaster} from '@/components/ui/sonner';
-import {getVersion, invoke, listen, openPath, openUrl} from '@/lib/host-bridge';
+import {
+	getVersion,
+	getWebAuthToken,
+	invoke,
+	isTauriRuntime,
+	listen,
+	openPath,
+	openUrl,
+	setWebAuthToken,
+	verifyWebAuthToken,
+} from '@/lib/host-bridge';
 import type {
 	Agent,
 	AgentConversationEntry,
@@ -23,7 +34,7 @@ import {
 	GitBranch,
 	SquareTerminal,
 } from 'lucide-react';
-import {useCallback, useEffect, useRef, useState} from 'react';
+import {useCallback, useEffect, useRef, useState, type FormEvent} from 'react';
 import {toast} from 'sonner';
 
 type RemoteInfo = {
@@ -33,6 +44,7 @@ type RemoteInfo = {
 
 type RepoViewTab = 'agent' | 'commit-log';
 type AppView = 'repo' | 'settings';
+type HostAuthState = 'checking' | 'unauthorized' | 'authorized';
 
 type AgentStreamPayload = {
 	runId: string;
@@ -152,6 +164,11 @@ function App() {
 	const [appVersion, setAppVersion] = useState<string | null>(null);
 	const [isVersionLoading, setIsVersionLoading] = useState(true);
 	const [versionError, setVersionError] = useState<string | null>(null);
+	const [hostAuthState, setHostAuthState] = useState<HostAuthState>(
+		isTauriRuntime ? 'authorized' : 'checking',
+	);
+	const [hostAuthTokenInput, setHostAuthTokenInput] = useState('');
+	const [hostAuthError, setHostAuthError] = useState<string | null>(null);
 	const [isSimulatorMode, setIsSimulatorMode] = useState<boolean>(() => {
 		try {
 			return localStorage.getItem(SIMULATOR_MODE_STORAGE_KEY) === 'true';
@@ -211,6 +228,24 @@ function App() {
 	const branchesRequestIdReference = useRef(0);
 	const activeRunIdReference = useRef<string | null>(null);
 	const activeRunAgentIdReference = useRef<number | null>(null);
+	const isRuntimeAuthorized = isTauriRuntime || hostAuthState === 'authorized';
+
+	const authenticateHostToken = useCallback(async (token: string) => {
+		if (isTauriRuntime) return true;
+		const normalizedToken = token.trim();
+		if (!normalizedToken) return false;
+		const isValid = await verifyWebAuthToken(normalizedToken);
+		if (isValid) {
+			setWebAuthToken(normalizedToken);
+			setHostAuthState('authorized');
+			setHostAuthError(null);
+			return true;
+		}
+		setWebAuthToken(undefined);
+		setHostAuthState('unauthorized');
+		setHostAuthError('Invalid token');
+		return false;
+	}, []);
 
 	const openSelectedRepoInExplorer = useCallback(async () => {
 		if (!selectedRepo) return;
@@ -233,6 +268,7 @@ function App() {
 	}, [selectedRepo]);
 
 	const loadRepos = useCallback(async () => {
+		if (!isRuntimeAuthorized) return;
 		try {
 			const result = await invoke<Repo[]>('list_repos');
 			setRepos(result);
@@ -243,19 +279,21 @@ function App() {
 		} catch (error) {
 			console.error('Failed to load repos:', error);
 		}
-	}, []);
+	}, [isRuntimeAuthorized]);
 
 	const loadGroups = useCallback(async () => {
+		if (!isRuntimeAuthorized) return;
 		try {
 			const result = await invoke<Group[]>('list_groups');
 			setGroups(result);
 		} catch (error) {
 			console.error('Failed to load groups:', error);
 		}
-	}, []);
+	}, [isRuntimeAuthorized]);
 
 	const checkRepoUpdates = useCallback(
 		async (fetch: boolean) => {
+			if (!isRuntimeAuthorized) return;
 			if (repos.length === 0) {
 				setRepoSyncStatusById({});
 				return;
@@ -295,7 +333,7 @@ function App() {
 				setIsCheckingRepoUpdates(false);
 			}
 		},
-		[repos],
+		[isRuntimeAuthorized, repos],
 	);
 
 	const pullRepo = useCallback(
@@ -349,9 +387,21 @@ function App() {
 	}, []);
 
 	useEffect(() => {
+		if (isTauriRuntime) return;
+		const savedToken = getWebAuthToken();
+		if (!savedToken) {
+			setHostAuthState('unauthorized');
+			return;
+		}
+		setHostAuthState('checking');
+		void authenticateHostToken(savedToken);
+	}, [authenticateHostToken]);
+
+	useEffect(() => {
+		if (!isRuntimeAuthorized) return;
 		loadRepos();
 		loadGroups();
-	}, [loadRepos, loadGroups]);
+	}, [isRuntimeAuthorized, loadRepos, loadGroups]);
 
 	useEffect(() => {
 		(async () => {
@@ -380,11 +430,13 @@ function App() {
 	}, [isSimulatorMode]);
 
 	useEffect(() => {
+		if (!isRuntimeAuthorized) return;
 		void checkRepoUpdates(false);
-	}, [checkRepoUpdates]);
+	}, [isRuntimeAuthorized, checkRepoUpdates]);
 
 	// Fetch remote info whenever selectedRepo changes
 	useEffect(() => {
+		if (!isRuntimeAuthorized) return;
 		if (!selectedRepo) {
 			setRemoteInfo(null);
 			setSelectedRepoBranch(null);
@@ -415,9 +467,10 @@ function App() {
 			setRemoteInfo(info);
 			setSelectedRepoBranch(branch);
 		})();
-	}, [selectedRepo]);
+	}, [isRuntimeAuthorized, selectedRepo]);
 
 	useEffect(() => {
+		if (!isRuntimeAuthorized) return;
 		if (repos.length === 0) {
 			setRepoBranchById({});
 			return;
@@ -447,9 +500,10 @@ function App() {
 			}
 			setRepoBranchById(nextBranchesById);
 		})();
-	}, [repos]);
+	}, [isRuntimeAuthorized, repos]);
 
 	useEffect(() => {
+		if (!isRuntimeAuthorized) return;
 		if (repos.length === 0) {
 			setAgentsByRepoId({});
 			setAgentsLoadingByRepoId({});
@@ -497,9 +551,10 @@ function App() {
 				Object.fromEntries(repos.map(repo => [repo.id, false])),
 			);
 		})();
-	}, [repos]);
+	}, [isRuntimeAuthorized, repos]);
 
 	useEffect(() => {
+		if (!isRuntimeAuthorized) return;
 		if (!selectedRepo) {
 			setSelectedAgentId(null);
 			return;
@@ -547,9 +602,10 @@ function App() {
 				}
 			}
 		})();
-	}, [selectedRepo]);
+	}, [isRuntimeAuthorized, selectedRepo]);
 
 	useEffect(() => {
+		if (!isRuntimeAuthorized) return;
 		if (!selectedRepo || !selectedCommitHash) {
 			setSelectedCommitDiffs([]);
 			setDiffError(null);
@@ -582,7 +638,7 @@ function App() {
 				}
 			}
 		})();
-	}, [selectedRepo, selectedCommitHash]);
+	}, [isRuntimeAuthorized, selectedRepo, selectedCommitHash]);
 
 	// Keyboard shortcuts:
 	// - Ctrl+Shift+A (Windows/Linux) or Cmd+Shift+A (macOS): open selected repo in Cursor
@@ -625,6 +681,9 @@ function App() {
 	}, [openSelectedRepoInCursor, openSelectedRepoInExplorer, remoteInfo]);
 
 	useEffect(() => {
+		if (!isRuntimeAuthorized) {
+			return () => {};
+		}
 		const unlistenStdoutPromise = listen<AgentStreamPayload>(
 			'repo-agent-stdout',
 			event => {
@@ -701,7 +760,7 @@ function App() {
 				unlisten();
 			});
 		};
-	}, [appendAgentLog, appendAgentMessage]);
+	}, [isRuntimeAuthorized, appendAgentLog, appendAgentMessage]);
 
 	const createAgent = useCallback(
 		async (repoId: number, name: string) => {
@@ -852,6 +911,15 @@ function App() {
 		}
 	}, []);
 
+	async function handleHostLoginSubmit(event: FormEvent) {
+		event.preventDefault();
+		setHostAuthState('checking');
+		const authenticated = await authenticateHostToken(hostAuthTokenInput);
+		if (!authenticated) {
+			setHostAuthState('unauthorized');
+		}
+	}
+
 	const selectedRepoAgents = selectedRepo
 		? (agentsByRepoId[selectedRepo.id] ?? [])
 		: [];
@@ -863,6 +931,41 @@ function App() {
 	const selectedAgentLogs = selectedAgentId
 		? (agentLogsById[selectedAgentId] ?? [])
 		: [];
+
+	if (!isRuntimeAuthorized) {
+		return (
+			<div className="flex min-h-screen items-center justify-center bg-background p-4">
+				<div className="w-full max-w-sm rounded-lg border bg-card p-5 shadow-sm">
+					<h1 className="text-lg font-semibold">Symphony Access</h1>
+					<p className="mt-1 text-sm text-muted-foreground">
+						Enter the host access token to open Symphony.
+					</p>
+					<form className="mt-4 space-y-3" onSubmit={handleHostLoginSubmit}>
+						<Input
+							type="password"
+							placeholder="Host access token"
+							value={hostAuthTokenInput}
+							onChange={event => setHostAuthTokenInput(event.target.value)}
+							disabled={hostAuthState === 'checking'}
+							autoFocus
+						/>
+						{hostAuthError && (
+							<p className="text-xs text-destructive">{hostAuthError}</p>
+						)}
+						<Button
+							type="submit"
+							className="w-full"
+							disabled={
+								hostAuthState === 'checking' || !hostAuthTokenInput.trim()
+							}
+						>
+							{hostAuthState === 'checking' ? 'Verifying...' : 'Unlock'}
+						</Button>
+					</form>
+				</div>
+			</div>
+		);
+	}
 
 	return (
 		<SidebarProvider>
