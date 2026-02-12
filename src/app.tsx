@@ -188,11 +188,15 @@ function App() {
 	const [repoSyncStatusById, setRepoSyncStatusById] = useState<
 		Record<number, RepoSyncStatus>
 	>({});
+	const [repoBranchById, setRepoBranchById] = useState<Record<number, string>>(
+		{},
+	);
 	const [isCheckingRepoUpdates, setIsCheckingRepoUpdates] = useState(false);
 	const remoteRequestIdReference = useRef(0);
 	const historyRequestIdReference = useRef(0);
 	const diffRequestIdReference = useRef(0);
 	const agentsRequestIdReference = useRef(0);
+	const branchesRequestIdReference = useRef(0);
 	const activeRunIdReference = useRef<string | null>(null);
 	const activeRunAgentIdReference = useRef<number | null>(null);
 
@@ -370,6 +374,38 @@ function App() {
 			setSelectedRepoBranch(branch);
 		})();
 	}, [selectedRepo]);
+
+	useEffect(() => {
+		if (repos.length === 0) {
+			setRepoBranchById({});
+			return;
+		}
+
+		branchesRequestIdReference.current += 1;
+		const requestId = branchesRequestIdReference.current;
+
+		(async () => {
+			const results = await Promise.allSettled(
+				repos.map(async repo => {
+					const branch = await invoke<string>('get_current_branch', {
+						path: repo.path,
+					});
+					return [repo.id, branch] as const;
+				}),
+			);
+			if (requestId !== branchesRequestIdReference.current) return;
+
+			const nextBranchesById: Record<number, string> = {};
+			for (const result of results) {
+				if (result.status !== 'fulfilled') continue;
+				const [repoId, branch] = result.value;
+				if (typeof branch === 'string' && branch.trim().length > 0) {
+					nextBranchesById[repoId] = branch;
+				}
+			}
+			setRepoBranchById(nextBranchesById);
+		})();
+	}, [repos]);
 
 	useEffect(() => {
 		if (repos.length === 0) {
@@ -790,6 +826,7 @@ function App() {
 				repos={repos}
 				groups={groups}
 				repoSyncStatusById={repoSyncStatusById}
+				repoBranchById={repoBranchById}
 				agentsByRepoId={agentsByRepoId}
 				agentsLoadingByRepoId={agentsLoadingByRepoId}
 				agentsErrorByRepoId={agentsErrorByRepoId}

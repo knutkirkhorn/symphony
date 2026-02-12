@@ -68,6 +68,7 @@ import {
 	Download,
 	FolderGit2,
 	FolderPlus,
+	GitBranch,
 	MoreHorizontal,
 	Pencil,
 	Plus,
@@ -81,6 +82,7 @@ type RepoSidebarProperties = {
 	repos: Repo[];
 	groups: Group[];
 	repoSyncStatusById: Record<number, RepoSyncStatus>;
+	repoBranchById: Record<number, string>;
 	agentsByRepoId: Record<number, Agent[]>;
 	agentsLoadingByRepoId: Record<number, boolean>;
 	agentsErrorByRepoId: Record<number, string | null>;
@@ -160,6 +162,7 @@ function handleDropZoneDragOver(event: React.DragEvent) {
 function DraggableRepoItem({
 	repo,
 	syncStatus,
+	branch,
 	isActive,
 	selectedAgentId,
 	agents,
@@ -180,6 +183,7 @@ function DraggableRepoItem({
 }: {
 	repo: Repo;
 	syncStatus?: RepoSyncStatus;
+	branch?: string;
 	isActive: boolean;
 	selectedAgentId: number | null;
 	agents: Agent[];
@@ -244,7 +248,10 @@ function DraggableRepoItem({
 				<ContextMenuTrigger asChild>
 					<SidebarMenuButton
 						isActive={isActive}
-						onClick={() => onRepoSelect(repo)}
+						onClick={() => {
+							onRepoSelect(repo);
+							setIsAgentsOpen(true);
+						}}
 						onPointerDown={event => onPointerDragStart(event, repo)}
 						title={repo.path}
 						className={cn(
@@ -255,6 +262,12 @@ function DraggableRepoItem({
 					>
 						<FolderGit2 className="size-4" />
 						<span>{repo.name}</span>
+						{branch && (
+							<span className="ml-1 inline-flex max-w-36 items-center gap-1 text-xs text-muted-foreground">
+								<GitBranch className="size-3 shrink-0" />
+								<span className="truncate">{branch}</span>
+							</span>
+						)}
 						{syncStatus?.can_pull && (
 							<span className="ml-auto mr-1 rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300">
 								{syncStatus.behind} new
@@ -604,6 +617,7 @@ function GroupSection({
 	group,
 	repos,
 	repoSyncStatusById,
+	repoBranchById,
 	agentsByRepoId,
 	agentsLoadingByRepoId,
 	agentsErrorByRepoId,
@@ -628,6 +642,7 @@ function GroupSection({
 	group: Group;
 	repos: Repo[];
 	repoSyncStatusById: Record<number, RepoSyncStatus>;
+	repoBranchById: Record<number, string>;
 	agentsByRepoId: Record<number, Agent[]>;
 	agentsLoadingByRepoId: Record<number, boolean>;
 	agentsErrorByRepoId: Record<number, string | null>;
@@ -769,6 +784,7 @@ function GroupSection({
 											key={repo.id}
 											repo={repo}
 											syncStatus={repoSyncStatusById[repo.id]}
+											branch={repoBranchById[repo.id]}
 											isActive={repo.id === selectedRepoId}
 											selectedAgentId={selectedAgentId}
 											agents={agentsByRepoId[repo.id] ?? []}
@@ -863,6 +879,7 @@ function UngroupedSection({
 	repos,
 	groups,
 	repoSyncStatusById,
+	repoBranchById,
 	agentsByRepoId,
 	agentsLoadingByRepoId,
 	agentsErrorByRepoId,
@@ -884,6 +901,7 @@ function UngroupedSection({
 	repos: Repo[];
 	groups: Group[];
 	repoSyncStatusById: Record<number, RepoSyncStatus>;
+	repoBranchById: Record<number, string>;
 	agentsByRepoId: Record<number, Agent[]>;
 	agentsLoadingByRepoId: Record<number, boolean>;
 	agentsErrorByRepoId: Record<number, string | null>;
@@ -935,6 +953,7 @@ function UngroupedSection({
 							key={repo.id}
 							repo={repo}
 							syncStatus={repoSyncStatusById[repo.id]}
+							branch={repoBranchById[repo.id]}
 							isActive={repo.id === selectedRepoId}
 							selectedAgentId={selectedAgentId}
 							agents={agentsByRepoId[repo.id] ?? []}
@@ -966,6 +985,7 @@ export function RepoSidebar({
 	repos,
 	groups,
 	repoSyncStatusById,
+	repoBranchById,
 	agentsByRepoId,
 	agentsLoadingByRepoId,
 	agentsErrorByRepoId,
@@ -1152,6 +1172,7 @@ export function RepoSidebar({
 							group={group}
 							repos={repos.filter(r => r.group_id === group.id)}
 							repoSyncStatusById={repoSyncStatusById}
+							repoBranchById={repoBranchById}
 							agentsByRepoId={agentsByRepoId}
 							agentsLoadingByRepoId={agentsLoadingByRepoId}
 							agentsErrorByRepoId={agentsErrorByRepoId}
@@ -1184,6 +1205,7 @@ export function RepoSidebar({
 							repos={ungroupedRepos}
 							groups={groups}
 							repoSyncStatusById={repoSyncStatusById}
+							repoBranchById={repoBranchById}
 							agentsByRepoId={agentsByRepoId}
 							agentsLoadingByRepoId={agentsLoadingByRepoId}
 							agentsErrorByRepoId={agentsErrorByRepoId}
