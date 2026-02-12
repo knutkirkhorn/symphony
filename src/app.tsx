@@ -1017,7 +1017,7 @@ function App() {
 					<p className="truncate text-sm font-medium">
 						{activeView === 'settings'
 							? 'Settings'
-							: selectedRepo?.name ?? 'Repositories'}
+							: (selectedRepo?.name ?? 'Repositories')}
 					</p>
 				</div>
 				{activeView === 'settings' ? (
