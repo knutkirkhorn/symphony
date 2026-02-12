@@ -1,4 +1,5 @@
-const prompt = process.argv[2] ?? 'Write me a new hello world script using typescript';
+const prompt =
+	process.argv[2] ?? 'Write me a new hello world script using typescript';
 const cwd = process.argv[3] ?? process.cwd();
 const sessionId = '29c7275b-dbcc-4a5f-aaff-05b6c93cb038';
 const requestId = '9bbaedf1-917d-4671-a362-4805c54171ba';
@@ -112,8 +113,7 @@ const stream = [
 			content: [
 				{
 					type: 'text',
-					text:
-						'Created `hello.ts` with a simple "Hello, World!" script. You can run it with:\n\n```bash\nnpx tsx hello.ts\n```\n\nOr if you have `ts-node` installed:\n\n```bash\nnpx ts-node hello.ts\n```',
+					text: 'Created `hello.ts` with a simple "Hello, World!" script. You can run it with:\n\n```bash\nnpx tsx hello.ts\n```\n\nOr if you have `ts-node` installed:\n\n```bash\nnpx ts-node hello.ts\n```',
 				},
 			],
 		},
