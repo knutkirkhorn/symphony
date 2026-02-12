@@ -226,9 +226,7 @@ function App() {
 			setRepos(result);
 			setSelectedRepo(previousSelectedRepo => {
 				if (!previousSelectedRepo) return null;
-				return (
-					result.find(repo => repo.id === previousSelectedRepo.id) ?? null
-				);
+				return result.find(repo => repo.id === previousSelectedRepo.id) ?? null;
 			});
 		} catch (error) {
 			console.error('Failed to load repos:', error);

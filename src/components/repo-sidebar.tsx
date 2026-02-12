@@ -238,6 +238,7 @@ function DraggableRepoItem({
 	const [selectedBranchName, setSelectedBranchName] = useState<string | null>(
 		null,
 	);
+	const [branchSearchQuery, setBranchSearchQuery] = useState('');
 	const [newBranchName, setNewBranchName] = useState('');
 	const [deleteForce, setDeleteForce] = useState(false);
 	const [moveChangesOnSwitch, setMoveChangesOnSwitch] = useState(true);
@@ -262,6 +263,13 @@ function DraggableRepoItem({
 		currentBranchName &&
 		selectedBranchName.trim() !== currentBranchName.trim(),
 	);
+	const normalizedBranchSearchQuery = branchSearchQuery.trim().toLowerCase();
+	const filteredLocalBranches =
+		normalizedBranchSearchQuery.length === 0
+			? localBranches
+			: localBranches.filter(localBranch =>
+					localBranch.name.toLowerCase().includes(normalizedBranchSearchQuery),
+				);
 
 	const refreshBranchDialogData = useCallback(async () => {
 		setIsBranchDataLoading(true);
@@ -719,6 +727,7 @@ function DraggableRepoItem({
 				onOpenChange={open => {
 					setIsBranchDialogOpen(open);
 					if (open) {
+						setBranchSearchQuery('');
 						void refreshBranchDialogData();
 					}
 				}}
@@ -750,7 +759,13 @@ function DraggableRepoItem({
 							<p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
 								Local branches
 							</p>
-							<ScrollArea className="max-h-44 rounded-md border">
+							<Input
+								value={branchSearchQuery}
+								onChange={event => setBranchSearchQuery(event.target.value)}
+								placeholder="Search branches..."
+								className="h-8"
+							/>
+							<ScrollArea className="h-56 rounded-md border">
 								<div className="space-y-1 p-2">
 									{isBranchDataLoading ? (
 										<p className="px-1 py-1 text-xs text-muted-foreground">
@@ -760,8 +775,12 @@ function DraggableRepoItem({
 										<p className="px-1 py-1 text-xs text-muted-foreground">
 											No local branches found.
 										</p>
+									) : filteredLocalBranches.length === 0 ? (
+										<p className="px-1 py-1 text-xs text-muted-foreground">
+											No branches match your search.
+										</p>
 									) : (
-										localBranches.map(localBranch => {
+										filteredLocalBranches.map(localBranch => {
 											const isSelected =
 												selectedBranchName === localBranch.name;
 											return (
