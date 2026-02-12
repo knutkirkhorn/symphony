@@ -37,6 +37,7 @@ const listenersByEvent = new Map<string, Set<EventListener<unknown>>>();
 let eventSource: EventSource | undefined;
 let lastKnownEventUrl = '';
 let webAuthTokenCache: string | undefined;
+let isMessageHandlerAttached = false;
 
 function loadStoredWebAuthToken() {
 	if (isTauriRuntime) return undefined;
@@ -69,10 +70,35 @@ function ensureEventSource() {
 
 	lastKnownEventUrl = nextEventUrl;
 	eventSource = new EventSource(nextEventUrl);
+	isMessageHandlerAttached = false;
 
 	eventSource.addEventListener('error', error => {
 		console.error('Host event stream error', error);
 	});
+
+	attachMessageHandler();
+}
+
+function attachMessageHandler() {
+	if (!eventSource || isMessageHandlerAttached) return;
+	eventSource.addEventListener('message', (message: MessageEvent<string>) => {
+		let payload: unknown;
+		try {
+			payload = JSON.parse(message.data);
+		} catch {
+			return;
+		}
+		if (!payload || typeof payload !== 'object') return;
+		const envelope = payload as {event?: string; payload?: unknown};
+		const eventName = envelope.event;
+		if (!eventName) return;
+		const subscribers = listenersByEvent.get(eventName);
+		if (!subscribers || subscribers.size === 0) return;
+		for (const listener of subscribers) {
+			listener({payload: envelope.payload});
+		}
+	});
+	isMessageHandlerAttached = true;
 }
 
 function registerBrowserEventListener<T>(
@@ -84,23 +110,8 @@ function registerBrowserEventListener<T>(
 	if (!listeners) {
 		listeners = new Set();
 		listenersByEvent.set(eventName, listeners);
-		eventSource?.addEventListener(
-			eventName,
-			(message: MessageEvent<string>) => {
-				let payload: unknown;
-				try {
-					payload = JSON.parse(message.data);
-				} catch {
-					payload = message.data;
-				}
-				const subscribers = listenersByEvent.get(eventName);
-				if (!subscribers || subscribers.size === 0) return;
-				for (const listener of subscribers) {
-					listener({payload});
-				}
-			},
-		);
 	}
+	attachMessageHandler();
 	listeners.add(handler as EventListener<unknown>);
 
 	return () => {
@@ -180,6 +191,7 @@ export function setWebAuthToken(token: string | undefined) {
 		eventSource.close();
 		eventSource = undefined;
 		lastKnownEventUrl = '';
+		isMessageHandlerAttached = false;
 	}
 	try {
 		if (webAuthTokenCache) {

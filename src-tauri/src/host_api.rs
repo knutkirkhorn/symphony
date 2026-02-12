@@ -36,6 +36,12 @@ pub struct BridgeEvent {
     pub payload: Value,
 }
 
+#[derive(Debug, Serialize)]
+struct BridgeEventEnvelope {
+    event: String,
+    payload: Value,
+}
+
 #[derive(Clone)]
 pub struct HostBridgeState {
     sender: broadcast::Sender<BridgeEvent>,
@@ -510,9 +516,13 @@ async fn events_handler(
             Ok(payload) => payload,
             Err(_) => return None,
         };
-        let data = serde_json::to_string(&event.payload).unwrap_or_else(|_| "null".to_string());
+        let envelope = BridgeEventEnvelope {
+            event: event.event,
+            payload: event.payload,
+        };
+        let data = serde_json::to_string(&envelope).unwrap_or_else(|_| "null".to_string());
         Some(Ok::<Event, Infallible>(
-            Event::default().event(event.event).data(data),
+            Event::default().data(data),
         ))
     });
 
