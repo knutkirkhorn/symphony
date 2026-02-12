@@ -880,6 +880,9 @@ function App() {
 				isCheckingRepoUpdates={isCheckingRepoUpdates}
 				selectedRepoId={selectedRepo?.id ?? null}
 				selectedAgentId={selectedAgentId}
+				runningAgentId={
+					isAgentRunning ? (activeRunAgentIdReference.current ?? null) : null
+				}
 				onRepoSelect={repo => {
 					setSelectedRepo(repo);
 					setActiveView('repo');

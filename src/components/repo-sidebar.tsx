@@ -94,6 +94,7 @@ type RepoSidebarProperties = {
 	isCheckingRepoUpdates: boolean;
 	selectedRepoId: number | null;
 	selectedAgentId: number | null;
+	runningAgentId: number | null;
 	onRepoSelect: (repo: Repo) => void;
 	onAgentSelect: (repo: Repo, agentId: number) => void;
 	onCreateAgent: (repoId: number, name: string) => Promise<void>;
@@ -185,6 +186,7 @@ function DraggableRepoItem({
 	branch,
 	isActive,
 	selectedAgentId,
+	runningAgentId,
 	agents,
 	isAgentsLoading,
 	agentsError,
@@ -207,6 +209,7 @@ function DraggableRepoItem({
 	branch?: string;
 	isActive: boolean;
 	selectedAgentId: number | null;
+	runningAgentId: number | null;
 	agents: Agent[];
 	isAgentsLoading: boolean;
 	agentsError: string | null;
@@ -589,12 +592,21 @@ function DraggableRepoItem({
 														onClick={() => onAgentSelect(repo, agent.id)}
 														title={agent.name}
 													>
-														<Bot
-															className={cn(
-																'size-3.5',
-																selectedAgentId === agent.id && 'text-primary',
-															)}
-														/>
+														{runningAgentId === agent.id ? (
+															<LoaderCircle
+																className={cn(
+																	'size-3.5 animate-spin',
+																	selectedAgentId === agent.id && 'text-primary',
+																)}
+															/>
+														) : (
+															<Bot
+																className={cn(
+																	'size-3.5',
+																	selectedAgentId === agent.id && 'text-primary',
+																)}
+															/>
+														)}
 														<span>{agent.name}</span>
 													</button>
 												</SidebarMenuSubButton>
@@ -992,6 +1004,7 @@ function GroupSection({
 	activeDropZone,
 	selectedRepoId,
 	selectedAgentId,
+	runningAgentId,
 	onRepoSelect,
 	onAgentSelect,
 	onCreateAgent,
@@ -1018,6 +1031,7 @@ function GroupSection({
 	activeDropZone: DropZone | null;
 	selectedRepoId: number | null;
 	selectedAgentId: number | null;
+	runningAgentId: number | null;
 	onRepoSelect: (repo: Repo) => void;
 	onAgentSelect: (repo: Repo, agentId: number) => void;
 	onCreateAgent: (repoId: number, name: string) => Promise<void>;
@@ -1156,6 +1170,7 @@ function GroupSection({
 											branch={repoBranchById[repo.id]}
 											isActive={repo.id === selectedRepoId}
 											selectedAgentId={selectedAgentId}
+											runningAgentId={runningAgentId}
 											agents={agentsByRepoId[repo.id] ?? []}
 											isAgentsLoading={Boolean(agentsLoadingByRepoId[repo.id])}
 											agentsError={agentsErrorByRepoId[repo.id] ?? null}
@@ -1256,6 +1271,7 @@ function UngroupedSection({
 	activeDropZone,
 	selectedRepoId,
 	selectedAgentId,
+	runningAgentId,
 	onRepoSelect,
 	onAgentSelect,
 	onCreateAgent,
@@ -1279,6 +1295,7 @@ function UngroupedSection({
 	activeDropZone: DropZone | null;
 	selectedRepoId: number | null;
 	selectedAgentId: number | null;
+	runningAgentId: number | null;
 	onRepoSelect: (repo: Repo) => void;
 	onAgentSelect: (repo: Repo, agentId: number) => void;
 	onCreateAgent: (repoId: number, name: string) => Promise<void>;
@@ -1328,6 +1345,7 @@ function UngroupedSection({
 							branch={repoBranchById[repo.id]}
 							isActive={repo.id === selectedRepoId}
 							selectedAgentId={selectedAgentId}
+							runningAgentId={runningAgentId}
 							agents={agentsByRepoId[repo.id] ?? []}
 							isAgentsLoading={Boolean(agentsLoadingByRepoId[repo.id])}
 							agentsError={agentsErrorByRepoId[repo.id] ?? null}
@@ -1365,6 +1383,7 @@ export function RepoSidebar({
 	isCheckingRepoUpdates,
 	selectedRepoId,
 	selectedAgentId,
+	runningAgentId,
 	onRepoSelect,
 	onAgentSelect,
 	onCreateAgent,
@@ -1569,6 +1588,7 @@ export function RepoSidebar({
 							activeDropZone={activeDropZone}
 							selectedRepoId={selectedRepoId}
 							selectedAgentId={selectedAgentId}
+							runningAgentId={runningAgentId}
 							onRepoSelect={onRepoSelect}
 							onAgentSelect={onAgentSelect}
 							onCreateAgent={onCreateAgent}
@@ -1602,6 +1622,7 @@ export function RepoSidebar({
 							activeDropZone={activeDropZone}
 							selectedRepoId={selectedRepoId}
 							selectedAgentId={selectedAgentId}
+							runningAgentId={runningAgentId}
 							onRepoSelect={onRepoSelect}
 							onAgentSelect={onAgentSelect}
 							onCreateAgent={onCreateAgent}
