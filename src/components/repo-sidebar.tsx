@@ -990,7 +990,7 @@ export function RepoSidebar({
 									<FolderPlus className="size-4" />
 								</Button>
 							</TooltipTrigger>
-							<TooltipContent side="right">New group</TooltipContent>
+							<TooltipContent side="top">New group</TooltipContent>
 						</Tooltip>
 						<Tooltip>
 							<TooltipTrigger asChild>
@@ -1005,7 +1005,7 @@ export function RepoSidebar({
 									/>
 								</Button>
 							</TooltipTrigger>
-							<TooltipContent side="right">Check updates</TooltipContent>
+							<TooltipContent side="top">Check updates</TooltipContent>
 						</Tooltip>
 						<Tooltip>
 							<TooltipTrigger asChild>
@@ -1020,7 +1020,7 @@ export function RepoSidebar({
 									<Plus className="size-4" />
 								</Button>
 							</TooltipTrigger>
-							<TooltipContent side="right">Add repository</TooltipContent>
+							<TooltipContent side="top">Add repository</TooltipContent>
 						</Tooltip>
 					</div>
 				</div>
