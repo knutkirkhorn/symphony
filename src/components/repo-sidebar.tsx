@@ -46,6 +46,7 @@ import {ScrollArea} from '@/components/ui/scroll-area';
 import {
 	Sidebar,
 	SidebarContent,
+	SidebarFooter,
 	SidebarGroup,
 	SidebarGroupContent,
 	SidebarGroupLabel,
@@ -76,6 +77,7 @@ import {
 	Pencil,
 	Plus,
 	RefreshCw,
+	Settings,
 	Trash2,
 } from 'lucide-react';
 import {useCallback, useEffect, useRef, useState, type FormEvent} from 'react';
@@ -104,6 +106,8 @@ type RepoSidebarProperties = {
 	onGroupsChange: () => void;
 	onCheckRepoUpdates: () => void;
 	onPullRepo: (repo: Repo) => Promise<void>;
+	isSettingsActive: boolean;
+	onSettingsClick: () => void;
 };
 
 type LocalBranch = {
@@ -1372,6 +1376,8 @@ export function RepoSidebar({
 	onGroupsChange,
 	onCheckRepoUpdates,
 	onPullRepo,
+	isSettingsActive,
+	onSettingsClick,
 }: RepoSidebarProperties) {
 	const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
 	const [isAddRepoOpen, setIsAddRepoOpen] = useState(false);
@@ -1597,6 +1603,16 @@ export function RepoSidebar({
 					)}
 				</div>
 			</SidebarContent>
+			<SidebarFooter className="border-t border-sidebar-border">
+				<Button
+					variant={isSettingsActive ? 'secondary' : 'ghost'}
+					className="w-full justify-start"
+					onClick={onSettingsClick}
+				>
+					<Settings className="size-4" />
+					Settings
+				</Button>
+			</SidebarFooter>
 
 			<AddRepoDialog
 				open={isAddRepoOpen}

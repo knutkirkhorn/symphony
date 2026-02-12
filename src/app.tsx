@@ -3,6 +3,7 @@ import {EmptyState} from '@/components/empty-state';
 import {GitHistoryView} from '@/components/git-history-view';
 import {RepoAgentsView} from '@/components/repo-agents-view';
 import {RepoSidebar} from '@/components/repo-sidebar';
+import {SettingsView} from '@/components/settings-view';
 import {Button} from '@/components/ui/button';
 import {SidebarInset, SidebarProvider} from '@/components/ui/sidebar';
 import {Toaster} from '@/components/ui/sonner';
@@ -15,6 +16,7 @@ import type {
 	Repo,
 	RepoSyncStatus,
 } from '@/lib/types';
+import {getVersion} from '@tauri-apps/api/app';
 import {invoke} from '@tauri-apps/api/core';
 import {listen} from '@tauri-apps/api/event';
 import {openPath, openUrl} from '@tauri-apps/plugin-opener';
@@ -33,6 +35,7 @@ type RemoteInfo = {
 };
 
 type RepoViewTab = 'agent' | 'commit-log';
+type AppView = 'repo' | 'settings';
 
 type AgentStreamPayload = {
 	runId: string;
@@ -145,8 +148,12 @@ function App() {
 	const [selectedRepoBranch, setSelectedRepoBranch] = useState<string | null>(
 		null,
 	);
+	const [activeView, setActiveView] = useState<AppView>('repo');
 	const [activeRepoViewTab, setActiveRepoViewTab] =
 		useState<RepoViewTab>('agent');
+	const [appVersion, setAppVersion] = useState<string | null>(null);
+	const [isVersionLoading, setIsVersionLoading] = useState(true);
+	const [versionError, setVersionError] = useState<string | null>(null);
 	const [agentsByRepoId, setAgentsByRepoId] = useState<Record<number, Agent[]>>(
 		{},
 	);
@@ -340,6 +347,21 @@ function App() {
 		loadRepos();
 		loadGroups();
 	}, [loadRepos, loadGroups]);
+
+	useEffect(() => {
+		(async () => {
+			setIsVersionLoading(true);
+			setVersionError(null);
+			try {
+				const version = await getVersion();
+				setAppVersion(version);
+			} catch (error) {
+				setVersionError(String(error));
+			} finally {
+				setIsVersionLoading(false);
+			}
+		})();
+	}, []);
 
 	useEffect(() => {
 		void checkRepoUpdates(false);
@@ -837,11 +859,15 @@ function App() {
 				isCheckingRepoUpdates={isCheckingRepoUpdates}
 				selectedRepoId={selectedRepo?.id ?? null}
 				selectedAgentId={selectedAgentId}
-				onRepoSelect={setSelectedRepo}
+				onRepoSelect={repo => {
+					setSelectedRepo(repo);
+					setActiveView('repo');
+				}}
 				onAgentSelect={(repo, agentId) => {
 					setSelectedRepo(repo);
 					setSelectedAgentId(agentId);
 					setActiveRepoViewTab('agent');
+					setActiveView('repo');
 				}}
 				onCreateAgent={createAgent}
 				onDeleteAgent={deleteAgent}
@@ -853,9 +879,17 @@ function App() {
 				onGroupsChange={loadGroups}
 				onCheckRepoUpdates={() => void checkRepoUpdates(true)}
 				onPullRepo={pullRepo}
+				isSettingsActive={activeView === 'settings'}
+				onSettingsClick={() => setActiveView('settings')}
 			/>
 			<SidebarInset>
-				{repos.length === 0 ? (
+				{activeView === 'settings' ? (
+					<SettingsView
+						version={appVersion}
+						isVersionLoading={isVersionLoading}
+						versionError={versionError}
+					/>
+				) : repos.length === 0 ? (
 					<EmptyState onReposChange={loadRepos} />
 				) : selectedRepo ? (
 					<div className="flex min-h-0 flex-1 flex-col">
