@@ -91,8 +91,10 @@ type RepoSidebarProperties = {
 	onAgentSelect: (repo: Repo, agentId: number) => void;
 	onCreateAgent: (repoId: number, name: string) => Promise<void>;
 	onDeleteAgent: (agent: Agent) => Promise<void>;
+	onRenameAgent: (agent: Agent, name: string) => Promise<void>;
 	isCreatingAgentRepoId: number | null;
 	isDeletingAgentId: number | null;
+	isRenamingAgentId: number | null;
 	onReposChange: () => void;
 	onGroupsChange: () => void;
 	onCheckRepoUpdates: () => void;
@@ -165,11 +167,13 @@ function DraggableRepoItem({
 	agentsError,
 	isCreatingAgentRepoId,
 	isDeletingAgentId,
+	isRenamingAgentId,
 	groups,
 	onRepoSelect,
 	onAgentSelect,
 	onCreateAgent,
 	onDeleteAgent,
+	onRenameAgent,
 	onReposChange,
 	onPointerDragStart,
 	onPullRepo,
@@ -183,11 +187,13 @@ function DraggableRepoItem({
 	agentsError: string | null;
 	isCreatingAgentRepoId: number | null;
 	isDeletingAgentId: number | null;
+	isRenamingAgentId: number | null;
 	groups: Group[];
 	onRepoSelect: (repo: Repo) => void;
 	onAgentSelect: (repo: Repo, agentId: number) => void;
 	onCreateAgent: (repoId: number, name: string) => Promise<void>;
 	onDeleteAgent: (agent: Agent) => Promise<void>;
+	onRenameAgent: (agent: Agent, name: string) => Promise<void>;
 	onReposChange: () => void;
 	onPointerDragStart: (event: React.PointerEvent, repo: Repo) => void;
 	onPullRepo: (repo: Repo) => Promise<void>;
@@ -197,9 +203,15 @@ function DraggableRepoItem({
 	const canMoveToUngrouped = repo.group_id !== null;
 	const [isAgentsOpen, setIsAgentsOpen] = useState(isActive);
 	const [isCreatingInlineAgent, setIsCreatingInlineAgent] = useState(false);
+	const [isRenameAgentDialogOpen, setIsRenameAgentDialogOpen] = useState(false);
+	const [agentToRename, setAgentToRename] = useState<Agent | null>(null);
+	const [renameAgentName, setRenameAgentName] = useState('');
 	const [newAgentName, setNewAgentName] = useState('');
 	const isCreatingThisRepoAgent = isCreatingAgentRepoId === repo.id;
 	const hasAgents = agents.length > 0;
+	const isRenamingSelectedAgent = Boolean(
+		agentToRename && isRenamingAgentId === agentToRename.id,
+	);
 
 	async function handleCreateAgent() {
 		const trimmed = newAgentName.trim();
@@ -213,6 +225,18 @@ function DraggableRepoItem({
 	useEffect(() => {
 		if (isActive) setIsAgentsOpen(true);
 	}, [isActive]);
+
+	async function handleRenameAgent(event: FormEvent) {
+		event.preventDefault();
+		if (!agentToRename) return;
+		const trimmed = renameAgentName.trim();
+		if (!trimmed) return;
+
+		await onRenameAgent(agentToRename, trimmed);
+		setIsRenameAgentDialogOpen(false);
+		setAgentToRename(null);
+		setRenameAgentName('');
+	}
 
 	return (
 		<SidebarMenuItem className="select-none cursor-grab active:cursor-grabbing">
@@ -303,7 +327,10 @@ function DraggableRepoItem({
 				)}
 			>
 				<ChevronRight
-					className={cn('size-3.5 transition-transform', isAgentsOpen && 'rotate-90')}
+					className={cn(
+						'size-3.5 transition-transform',
+						isAgentsOpen && 'rotate-90',
+					)}
 				/>
 			</SidebarMenuAction>
 			<Collapsible open={isAgentsOpen} onOpenChange={setIsAgentsOpen}>
@@ -349,7 +376,8 @@ function DraggableRepoItem({
 										size="sm"
 										className="h-7 px-2 text-xs"
 										disabled={
-											isCreatingThisRepoAgent || newAgentName.trim().length === 0
+											isCreatingThisRepoAgent ||
+											newAgentName.trim().length === 0
 										}
 										onClick={() => void handleCreateAgent()}
 									>
@@ -366,50 +394,77 @@ function DraggableRepoItem({
 							</SidebarMenuSubItem>
 						) : agentsError ? (
 							<SidebarMenuSubItem>
-								<p className="px-2 py-1 text-xs text-destructive">{agentsError}</p>
+								<p className="px-2 py-1 text-xs text-destructive">
+									{agentsError}
+								</p>
 							</SidebarMenuSubItem>
 						) : hasAgents ? (
 							agents.map(agent => (
 								<SidebarMenuSubItem key={agent.id}>
-									<div className="group/menu-sub-item relative">
-										<SidebarMenuSubButton
-											asChild
-											size="sm"
-											isActive={selectedAgentId === agent.id}
-											className={cn(
-												'pr-8 transition-all',
-												'data-[active=true]:bg-primary/16 data-[active=true]:text-primary data-[active=true]:font-semibold data-[active=true]:shadow-sm data-[active=true]:ring-1 data-[active=true]:ring-primary/35',
-											)}
-										>
-											<button
-												type="button"
-												onClick={() => onAgentSelect(repo, agent.id)}
-												title={agent.name}
-											>
-												<Bot
+									<ContextMenu>
+										<ContextMenuTrigger asChild>
+											<div className="group/menu-sub-item relative">
+												<SidebarMenuSubButton
+													asChild
+													size="sm"
+													isActive={selectedAgentId === agent.id}
 													className={cn(
-														'size-3.5',
-														selectedAgentId === agent.id && 'text-primary',
+														'pr-8 transition-all',
+														'data-[active=true]:bg-primary/16 data-[active=true]:text-primary data-[active=true]:font-semibold data-[active=true]:shadow-sm data-[active=true]:ring-1 data-[active=true]:ring-primary/35',
 													)}
-												/>
-												<span>{agent.name}</span>
-											</button>
-										</SidebarMenuSubButton>
-										<Button
-											type="button"
-											variant="ghost"
-											size="icon"
-											className="absolute top-1/2 right-1 size-5 -translate-y-1/2 text-sidebar-foreground/50 opacity-0 transition-opacity hover:text-destructive group-hover/menu-sub-item:opacity-100"
-											disabled={isDeletingAgentId === agent.id}
-											onClick={event => {
-												event.stopPropagation();
-												void onDeleteAgent(agent);
-											}}
-											title={`Delete ${agent.name}`}
-										>
-											<Trash2 className="size-3.5" />
-										</Button>
-									</div>
+												>
+													<button
+														type="button"
+														onClick={() => onAgentSelect(repo, agent.id)}
+														title={agent.name}
+													>
+														<Bot
+															className={cn(
+																'size-3.5',
+																selectedAgentId === agent.id && 'text-primary',
+															)}
+														/>
+														<span>{agent.name}</span>
+													</button>
+												</SidebarMenuSubButton>
+												<Button
+													type="button"
+													variant="ghost"
+													size="icon"
+													className="absolute top-1/2 right-1 size-5 -translate-y-1/2 text-sidebar-foreground/50 opacity-0 transition-opacity hover:text-destructive group-hover/menu-sub-item:opacity-100"
+													disabled={isDeletingAgentId === agent.id}
+													onClick={event => {
+														event.stopPropagation();
+														void onDeleteAgent(agent);
+													}}
+													title={`Delete ${agent.name}`}
+												>
+													<Trash2 className="size-3.5" />
+												</Button>
+											</div>
+										</ContextMenuTrigger>
+										<ContextMenuContent>
+											<ContextMenuItem
+												onClick={() => {
+													setAgentToRename(agent);
+													setRenameAgentName(agent.name);
+													setIsRenameAgentDialogOpen(true);
+												}}
+											>
+												<Pencil className="size-4" />
+												Rename
+											</ContextMenuItem>
+											<ContextMenuSeparator />
+											<ContextMenuItem
+												variant="destructive"
+												disabled={isDeletingAgentId === agent.id}
+												onClick={() => void onDeleteAgent(agent)}
+											>
+												<Trash2 className="size-4" />
+												Delete
+											</ContextMenuItem>
+										</ContextMenuContent>
+									</ContextMenu>
 								</SidebarMenuSubItem>
 							))
 						) : (
@@ -453,6 +508,54 @@ function DraggableRepoItem({
 					</AlertDialogFooter>
 				</AlertDialogContent>
 			</AlertDialog>
+			<Dialog
+				open={isRenameAgentDialogOpen}
+				onOpenChange={open => {
+					setIsRenameAgentDialogOpen(open);
+					if (!open) {
+						setAgentToRename(null);
+						setRenameAgentName('');
+					}
+				}}
+			>
+				<DialogContent>
+					<form onSubmit={event => void handleRenameAgent(event)}>
+						<DialogHeader>
+							<DialogTitle>Rename agent</DialogTitle>
+							<DialogDescription>
+								Choose a new name for this agent.
+							</DialogDescription>
+						</DialogHeader>
+						<div className="py-4">
+							<Input
+								autoFocus
+								value={renameAgentName}
+								onChange={event => setRenameAgentName(event.target.value)}
+								placeholder="Agent name"
+								disabled={isRenamingSelectedAgent}
+							/>
+						</div>
+						<DialogFooter>
+							<Button
+								type="button"
+								variant="outline"
+								onClick={() => setIsRenameAgentDialogOpen(false)}
+								disabled={isRenamingSelectedAgent}
+							>
+								Cancel
+							</Button>
+							<Button
+								type="submit"
+								disabled={
+									isRenamingSelectedAgent || renameAgentName.trim().length === 0
+								}
+							>
+								{isRenamingSelectedAgent ? 'Renaming...' : 'Rename'}
+							</Button>
+						</DialogFooter>
+					</form>
+				</DialogContent>
+			</Dialog>
 		</SidebarMenuItem>
 	);
 }
@@ -512,8 +615,10 @@ function GroupSection({
 	onAgentSelect,
 	onCreateAgent,
 	onDeleteAgent,
+	onRenameAgent,
 	isCreatingAgentRepoId,
 	isDeletingAgentId,
+	isRenamingAgentId,
 	onReposChange,
 	onGroupsChange,
 	onAddRepo,
@@ -534,8 +639,10 @@ function GroupSection({
 	onAgentSelect: (repo: Repo, agentId: number) => void;
 	onCreateAgent: (repoId: number, name: string) => Promise<void>;
 	onDeleteAgent: (agent: Agent) => Promise<void>;
+	onRenameAgent: (agent: Agent, name: string) => Promise<void>;
 	isCreatingAgentRepoId: number | null;
 	isDeletingAgentId: number | null;
+	isRenamingAgentId: number | null;
 	onReposChange: () => void;
 	onGroupsChange: () => void;
 	onAddRepo: (groupId: number) => void;
@@ -665,17 +772,17 @@ function GroupSection({
 											isActive={repo.id === selectedRepoId}
 											selectedAgentId={selectedAgentId}
 											agents={agentsByRepoId[repo.id] ?? []}
-											isAgentsLoading={Boolean(
-												agentsLoadingByRepoId[repo.id],
-											)}
+											isAgentsLoading={Boolean(agentsLoadingByRepoId[repo.id])}
 											agentsError={agentsErrorByRepoId[repo.id] ?? null}
 											isCreatingAgentRepoId={isCreatingAgentRepoId}
 											isDeletingAgentId={isDeletingAgentId}
+											isRenamingAgentId={isRenamingAgentId}
 											groups={allGroups}
 											onRepoSelect={onRepoSelect}
 											onAgentSelect={onAgentSelect}
 											onCreateAgent={onCreateAgent}
 											onDeleteAgent={onDeleteAgent}
+											onRenameAgent={onRenameAgent}
 											onReposChange={onReposChange}
 											onPointerDragStart={onPointerDragStart}
 											onPullRepo={onPullRepo}
@@ -766,8 +873,10 @@ function UngroupedSection({
 	onAgentSelect,
 	onCreateAgent,
 	onDeleteAgent,
+	onRenameAgent,
 	isCreatingAgentRepoId,
 	isDeletingAgentId,
+	isRenamingAgentId,
 	onReposChange,
 	onPointerDragStart,
 	onPullRepo,
@@ -785,8 +894,10 @@ function UngroupedSection({
 	onAgentSelect: (repo: Repo, agentId: number) => void;
 	onCreateAgent: (repoId: number, name: string) => Promise<void>;
 	onDeleteAgent: (agent: Agent) => Promise<void>;
+	onRenameAgent: (agent: Agent, name: string) => Promise<void>;
 	isCreatingAgentRepoId: number | null;
 	isDeletingAgentId: number | null;
+	isRenamingAgentId: number | null;
 	onReposChange: () => void;
 	onPointerDragStart: (event: React.PointerEvent, repo: Repo) => void;
 	onPullRepo: (repo: Repo) => Promise<void>;
@@ -831,11 +942,13 @@ function UngroupedSection({
 							agentsError={agentsErrorByRepoId[repo.id] ?? null}
 							isCreatingAgentRepoId={isCreatingAgentRepoId}
 							isDeletingAgentId={isDeletingAgentId}
+							isRenamingAgentId={isRenamingAgentId}
 							groups={groups}
 							onRepoSelect={onRepoSelect}
 							onAgentSelect={onAgentSelect}
 							onCreateAgent={onCreateAgent}
 							onDeleteAgent={onDeleteAgent}
+							onRenameAgent={onRenameAgent}
 							onReposChange={onReposChange}
 							onPointerDragStart={onPointerDragStart}
 							onPullRepo={onPullRepo}
@@ -863,8 +976,10 @@ export function RepoSidebar({
 	onAgentSelect,
 	onCreateAgent,
 	onDeleteAgent,
+	onRenameAgent,
 	isCreatingAgentRepoId,
 	isDeletingAgentId,
+	isRenamingAgentId,
 	onReposChange,
 	onGroupsChange,
 	onCheckRepoUpdates,
@@ -1048,8 +1163,10 @@ export function RepoSidebar({
 							onAgentSelect={onAgentSelect}
 							onCreateAgent={onCreateAgent}
 							onDeleteAgent={onDeleteAgent}
+							onRenameAgent={onRenameAgent}
 							isCreatingAgentRepoId={isCreatingAgentRepoId}
 							isDeletingAgentId={isDeletingAgentId}
+							isRenamingAgentId={isRenamingAgentId}
 							onReposChange={onReposChange}
 							onGroupsChange={onGroupsChange}
 							onAddRepo={groupId => {
@@ -1077,8 +1194,10 @@ export function RepoSidebar({
 							onAgentSelect={onAgentSelect}
 							onCreateAgent={onCreateAgent}
 							onDeleteAgent={onDeleteAgent}
+							onRenameAgent={onRenameAgent}
 							isCreatingAgentRepoId={isCreatingAgentRepoId}
 							isDeletingAgentId={isDeletingAgentId}
+							isRenamingAgentId={isRenamingAgentId}
 							onReposChange={onReposChange}
 							onPointerDragStart={handlePointerDragStart}
 							onPullRepo={onPullRepo}

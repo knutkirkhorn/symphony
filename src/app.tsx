@@ -159,7 +159,12 @@ function App() {
 	const [isCreatingAgentRepoId, setIsCreatingAgentRepoId] = useState<
 		number | null
 	>(null);
-	const [isDeletingAgentId, setIsDeletingAgentId] = useState<number | null>(null);
+	const [isDeletingAgentId, setIsDeletingAgentId] = useState<number | null>(
+		null,
+	);
+	const [isRenamingAgentId, setIsRenamingAgentId] = useState<number | null>(
+		null,
+	);
 	const [selectedAgentId, setSelectedAgentId] = useState<number | null>(null);
 	const [agentPrompt, setAgentPrompt] = useState('');
 	const [isAgentRunning, setIsAgentRunning] = useState(false);
@@ -620,31 +625,34 @@ function App() {
 		};
 	}, [appendAgentLog, appendAgentMessage]);
 
-	const createAgent = useCallback(async (repoId: number, name: string) => {
-		setIsCreatingAgentRepoId(repoId);
-		try {
-			const createdAgent = await invoke<Agent>('create_agent', {
-				repoId,
-				name,
-			});
-			setAgentsByRepoId(previous => ({
-				...previous,
-				[repoId]: [createdAgent, ...(previous[repoId] ?? [])],
-			}));
-			setSelectedRepo(previous =>
-				previous?.id === repoId
-					? previous
-					: (repos.find(repo => repo.id === repoId) ?? previous),
-			);
-			setSelectedAgentId(createdAgent.id);
-			setActiveRepoViewTab('agent');
-			toast.success(`Created agent "${createdAgent.name}"`);
-		} catch (error) {
-			toast.error(String(error));
-		} finally {
-			setIsCreatingAgentRepoId(null);
-		}
-	}, [repos]);
+	const createAgent = useCallback(
+		async (repoId: number, name: string) => {
+			setIsCreatingAgentRepoId(repoId);
+			try {
+				const createdAgent = await invoke<Agent>('create_agent', {
+					repoId,
+					name,
+				});
+				setAgentsByRepoId(previous => ({
+					...previous,
+					[repoId]: [createdAgent, ...(previous[repoId] ?? [])],
+				}));
+				setSelectedRepo(previous =>
+					previous?.id === repoId
+						? previous
+						: (repos.find(repo => repo.id === repoId) ?? previous),
+				);
+				setSelectedAgentId(createdAgent.id);
+				setActiveRepoViewTab('agent');
+				toast.success(`Created agent "${createdAgent.name}"`);
+			} catch (error) {
+				toast.error(String(error));
+			} finally {
+				setIsCreatingAgentRepoId(null);
+			}
+		},
+		[repos],
+	);
 
 	const runPromptOnAgent = useCallback(async () => {
 		if (!selectedRepo || !selectedAgentId) return;
@@ -687,45 +695,71 @@ function App() {
 		appendAgentMessage,
 	]);
 
-	const deleteAgent = useCallback(async (agent: Agent) => {
-		setIsDeletingAgentId(agent.id);
+	const deleteAgent = useCallback(
+		async (agent: Agent) => {
+			setIsDeletingAgentId(agent.id);
+			try {
+				await invoke('delete_agent', {agentId: agent.id});
+				setAgentsByRepoId(previous => ({
+					...previous,
+					[agent.repo_id]: (previous[agent.repo_id] ?? []).filter(
+						existing => existing.id !== agent.id,
+					),
+				}));
+				setSelectedAgentId(previous => {
+					if (previous !== agent.id) return previous;
+					const nextSelectedAgent = (agentsByRepoId[agent.repo_id] ?? []).find(
+						existing => existing.id !== agent.id,
+					);
+					return nextSelectedAgent?.id ?? null;
+				});
+				setAgentMessagesById(previous => {
+					const next = {...previous};
+					delete next[agent.id];
+					return next;
+				});
+				setAgentLogsById(previous => {
+					const next = {...previous};
+					delete next[agent.id];
+					return next;
+				});
+				if (activeRunAgentIdReference.current === agent.id) {
+					setIsAgentRunning(false);
+					activeRunIdReference.current = null;
+					activeRunAgentIdReference.current = null;
+				}
+				toast.success(`Deleted agent "${agent.name}"`);
+			} catch (error) {
+				toast.error(String(error));
+			} finally {
+				setIsDeletingAgentId(null);
+			}
+		},
+		[agentsByRepoId],
+	);
+
+	const renameAgent = useCallback(async (agent: Agent, name: string) => {
+		const trimmedName = name.trim();
+		if (!trimmedName) return;
+
+		setIsRenamingAgentId(agent.id);
 		try {
-			await invoke('delete_agent', {agentId: agent.id});
+			await invoke('rename_agent', {agentId: agent.id, name: trimmedName});
 			setAgentsByRepoId(previous => ({
 				...previous,
-				[agent.repo_id]: (previous[agent.repo_id] ?? []).filter(
-					existing => existing.id !== agent.id,
+				[agent.repo_id]: (previous[agent.repo_id] ?? []).map(existing =>
+					existing.id === agent.id
+						? {...existing, name: trimmedName}
+						: existing,
 				),
 			}));
-			setSelectedAgentId(previous => {
-				if (previous !== agent.id) return previous;
-				const nextSelectedAgent = (agentsByRepoId[agent.repo_id] ?? []).find(
-					existing => existing.id !== agent.id,
-				);
-				return nextSelectedAgent?.id ?? null;
-			});
-			setAgentMessagesById(previous => {
-				const next = {...previous};
-				delete next[agent.id];
-				return next;
-			});
-			setAgentLogsById(previous => {
-				const next = {...previous};
-				delete next[agent.id];
-				return next;
-			});
-			if (activeRunAgentIdReference.current === agent.id) {
-				setIsAgentRunning(false);
-				activeRunIdReference.current = null;
-				activeRunAgentIdReference.current = null;
-			}
-			toast.success(`Deleted agent "${agent.name}"`);
+			toast.success(`Renamed agent to "${trimmedName}"`);
 		} catch (error) {
 			toast.error(String(error));
 		} finally {
-			setIsDeletingAgentId(null);
+			setIsRenamingAgentId(null);
 		}
-	}, [agentsByRepoId]);
+	}, []);
 
 	const stopAgentRun = useCallback(async () => {
 		try {
@@ -738,7 +772,9 @@ function App() {
 		}
 	}, []);
 
-	const selectedRepoAgents = selectedRepo ? (agentsByRepoId[selectedRepo.id] ?? []) : [];
+	const selectedRepoAgents = selectedRepo
+		? (agentsByRepoId[selectedRepo.id] ?? [])
+		: [];
 	const selectedAgent =
 		selectedRepoAgents.find(agent => agent.id === selectedAgentId) ?? null;
 	const selectedAgentMessages = selectedAgentId
@@ -768,8 +804,10 @@ function App() {
 				}}
 				onCreateAgent={createAgent}
 				onDeleteAgent={deleteAgent}
+				onRenameAgent={renameAgent}
 				isCreatingAgentRepoId={isCreatingAgentRepoId}
 				isDeletingAgentId={isDeletingAgentId}
+				isRenamingAgentId={isRenamingAgentId}
 				onReposChange={loadRepos}
 				onGroupsChange={loadGroups}
 				onCheckRepoUpdates={() => void checkRepoUpdates(true)}

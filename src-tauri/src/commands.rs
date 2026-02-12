@@ -231,6 +231,28 @@ pub fn delete_agent(db: State<'_, Database>, agent_id: i64) -> Result<(), String
     Ok(())
 }
 
+#[tauri::command]
+pub fn rename_agent(db: State<'_, Database>, agent_id: i64, name: String) -> Result<(), String> {
+    let trimmed_name = name.trim();
+    if trimmed_name.is_empty() {
+        return Err("Agent name is required".to_string());
+    }
+
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let updated_rows = conn
+        .execute(
+            "UPDATE agents SET name = ?1 WHERE id = ?2",
+            rusqlite::params![trimmed_name, agent_id],
+        )
+        .map_err(|e| e.to_string())?;
+
+    if updated_rows == 0 {
+        return Err("Agent not found".to_string());
+    }
+
+    Ok(())
+}
+
 fn validate_git_repo(repo_path: &Path) -> Result<String, String> {
     if !repo_path.exists() {
         return Err("Directory does not exist".to_string());
