@@ -346,6 +346,22 @@ pub struct RepoSyncStatus {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalBranch {
+    pub name: String,
+    pub is_current: bool,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoWorkingTreeStatus {
+    pub has_changes: bool,
+    pub has_staged_changes: bool,
+    pub has_unstaged_changes: bool,
+    pub has_untracked_changes: bool,
+}
+
 #[tauri::command]
 pub fn get_remote_url(path: String) -> Result<Option<RemoteInfo>, String> {
     let output = std::process::Command::new("git")
@@ -389,6 +405,138 @@ pub fn get_current_branch(path: String) -> Result<String, String> {
     .to_string();
 
     Ok(format!("detached@{}", short_head))
+}
+
+#[tauri::command]
+pub fn list_local_branches(path: String) -> Result<Vec<LocalBranch>, String> {
+    let output = run_git_command(
+        &path,
+        &[
+            "branch".to_string(),
+            "--format=%(refname:short)\t%(HEAD)".to_string(),
+        ],
+    )?;
+
+    let mut branches = Vec::new();
+    for line in output.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let mut parts = trimmed.splitn(2, '\t');
+        let name = parts.next().unwrap_or_default().trim().to_string();
+        if name.is_empty() {
+            continue;
+        }
+
+        let head_marker = parts.next().unwrap_or_default().trim();
+        branches.push(LocalBranch {
+            name,
+            is_current: head_marker == "*",
+        });
+    }
+
+    Ok(branches)
+}
+
+#[tauri::command]
+pub fn get_repo_working_tree_status(path: String) -> Result<RepoWorkingTreeStatus, String> {
+    let output = run_git_command(&path, &["status".to_string(), "--porcelain".to_string()])?;
+    Ok(parse_working_tree_status_output(&output))
+}
+
+#[tauri::command]
+pub fn switch_branch(
+    path: String,
+    target_branch: String,
+    move_changes: Option<bool>,
+) -> Result<String, String> {
+    let target = target_branch.trim();
+    if target.is_empty() {
+        return Err("Target branch is required".to_string());
+    }
+
+    let current_branch = get_current_branch(path.clone())?;
+    let working_tree = get_repo_working_tree_status(path.clone())?;
+    let should_move_changes = move_changes.unwrap_or(true);
+
+    if working_tree.has_changes && !should_move_changes {
+        let unix_timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_secs())
+            .unwrap_or(0);
+        let stash_message = format!("symphony:auto-stash:{}:{}", current_branch, unix_timestamp);
+
+        let _ = run_git_command(
+            &path,
+            &[
+                "stash".to_string(),
+                "push".to_string(),
+                "-u".to_string(),
+                "-m".to_string(),
+                stash_message.clone(),
+            ],
+        )?;
+
+        if let Err(error) = run_git_branch_switch(&path, target) {
+            let _ = run_git_command(&path, &["stash".to_string(), "pop".to_string()]);
+            return Err(error);
+        }
+
+        return Ok(format!(
+            "Switched to '{}' and stashed local changes from '{}'.",
+            target, current_branch
+        ));
+    }
+
+    run_git_branch_switch(&path, target)?;
+    Ok(format!("Switched to '{}'.", target))
+}
+
+#[tauri::command]
+pub fn create_local_branch(path: String, name: String) -> Result<String, String> {
+    let trimmed_name = name.trim();
+    if trimmed_name.is_empty() {
+        return Err("Branch name is required".to_string());
+    }
+
+    let valid_branch_name =
+        run_git_status_command(&path, &["check-ref-format", "--branch", trimmed_name])?;
+    if !valid_branch_name {
+        return Err("Invalid branch name".to_string());
+    }
+
+    run_git_command(&path, &["branch".to_string(), trimmed_name.to_string()])?;
+    Ok(format!("Created branch '{}'.", trimmed_name))
+}
+
+#[tauri::command]
+pub fn delete_local_branch(
+    path: String,
+    branch_name: String,
+    force: Option<bool>,
+) -> Result<String, String> {
+    let trimmed_name = branch_name.trim();
+    if trimmed_name.is_empty() {
+        return Err("Branch name is required".to_string());
+    }
+
+    let current_branch = get_current_branch(path.clone())?;
+    if current_branch == trimmed_name {
+        return Err("Cannot delete the currently checked out branch".to_string());
+    }
+
+    let delete_flag = if force.unwrap_or(false) { "-D" } else { "-d" };
+    run_git_command(
+        &path,
+        &[
+            "branch".to_string(),
+            delete_flag.to_string(),
+            trimmed_name.to_string(),
+        ],
+    )?;
+    Ok(format!("Deleted branch '{}'.", trimmed_name))
 }
 
 #[tauri::command]
@@ -600,6 +748,51 @@ fn run_git_status_command(path: &str, args: &[&str]) -> Result<bool, String> {
         .output()
         .map_err(|e| format!("Failed to run git: {}", e))?;
     Ok(output.status.success())
+}
+
+fn run_git_branch_switch(path: &str, target_branch: &str) -> Result<(), String> {
+    let switch_result = run_git_command(path, &["switch".to_string(), target_branch.to_string()]);
+    if switch_result.is_ok() {
+        return Ok(());
+    }
+
+    run_git_command(path, &["checkout".to_string(), target_branch.to_string()])?;
+    Ok(())
+}
+
+fn parse_working_tree_status_output(output: &str) -> RepoWorkingTreeStatus {
+    let mut has_staged_changes = false;
+    let mut has_unstaged_changes = false;
+    let mut has_untracked_changes = false;
+
+    for line in output.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+
+        let bytes = line.as_bytes();
+        if bytes.len() >= 2 {
+            let staged_code = bytes[0] as char;
+            let unstaged_code = bytes[1] as char;
+            if staged_code != ' ' && staged_code != '?' {
+                has_staged_changes = true;
+            }
+            if unstaged_code != ' ' && unstaged_code != '?' {
+                has_unstaged_changes = true;
+            }
+        }
+
+        if line.starts_with("??") {
+            has_untracked_changes = true;
+        }
+    }
+
+    RepoWorkingTreeStatus {
+        has_changes: has_staged_changes || has_unstaged_changes || has_untracked_changes,
+        has_staged_changes,
+        has_unstaged_changes,
+        has_untracked_changes,
+    }
 }
 
 fn parse_commit_file_diffs(raw_output: &str) -> Vec<GitCommitFileDiff> {

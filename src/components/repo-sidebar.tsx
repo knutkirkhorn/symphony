@@ -42,6 +42,7 @@ import {
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {Input} from '@/components/ui/input';
+import {ScrollArea} from '@/components/ui/scroll-area';
 import {
 	Sidebar,
 	SidebarContent,
@@ -64,11 +65,13 @@ import {invoke} from '@tauri-apps/api/core';
 import {
 	ArrowRightLeft,
 	Bot,
+	Check,
 	ChevronRight,
 	Download,
 	FolderGit2,
 	FolderPlus,
 	GitBranch,
+	LoaderCircle,
 	MoreHorizontal,
 	Pencil,
 	Plus,
@@ -101,6 +104,18 @@ type RepoSidebarProperties = {
 	onGroupsChange: () => void;
 	onCheckRepoUpdates: () => void;
 	onPullRepo: (repo: Repo) => Promise<void>;
+};
+
+type LocalBranch = {
+	name: string;
+	isCurrent: boolean;
+};
+
+type RepoWorkingTreeStatus = {
+	hasChanges: boolean;
+	hasStagedChanges: boolean;
+	hasUnstagedChanges: boolean;
+	hasUntrackedChanges: boolean;
 };
 
 async function handleRemoveRepo(id: number, onReposChange: () => void) {
@@ -180,6 +195,7 @@ function DraggableRepoItem({
 	onReposChange,
 	onPointerDragStart,
 	onPullRepo,
+	onCheckRepoUpdates,
 }: {
 	repo: Repo;
 	syncStatus?: RepoSyncStatus;
@@ -201,6 +217,7 @@ function DraggableRepoItem({
 	onReposChange: () => void;
 	onPointerDragStart: (event: React.PointerEvent, repo: Repo) => void;
 	onPullRepo: (repo: Repo) => Promise<void>;
+	onCheckRepoUpdates: () => void;
 }) {
 	// Groups the repo can be moved to (exclude the one it's already in)
 	const moveTargets = groups.filter(g => g.id !== repo.group_id);
@@ -216,6 +233,126 @@ function DraggableRepoItem({
 	const isRenamingSelectedAgent = Boolean(
 		agentToRename && isRenamingAgentId === agentToRename.id,
 	);
+	const [isBranchDialogOpen, setIsBranchDialogOpen] = useState(false);
+	const [localBranches, setLocalBranches] = useState<LocalBranch[]>([]);
+	const [selectedBranchName, setSelectedBranchName] = useState<string | null>(
+		null,
+	);
+	const [newBranchName, setNewBranchName] = useState('');
+	const [deleteForce, setDeleteForce] = useState(false);
+	const [moveChangesOnSwitch, setMoveChangesOnSwitch] = useState(true);
+	const [workingTreeStatus, setWorkingTreeStatus] =
+		useState<RepoWorkingTreeStatus | null>(null);
+	const [isBranchDataLoading, setIsBranchDataLoading] = useState(false);
+	const [isSwitchingBranch, setIsSwitchingBranch] = useState(false);
+	const [isCreatingBranch, setIsCreatingBranch] = useState(false);
+	const [isDeletingBranch, setIsDeletingBranch] = useState(false);
+
+	const currentBranchName =
+		localBranches.find(localBranch => localBranch.isCurrent)?.name ??
+		branch ??
+		null;
+	const canSwitchBranch = Boolean(
+		selectedBranchName &&
+		currentBranchName &&
+		selectedBranchName.trim() !== currentBranchName.trim(),
+	);
+	const canDeleteBranch = Boolean(
+		selectedBranchName &&
+		currentBranchName &&
+		selectedBranchName.trim() !== currentBranchName.trim(),
+	);
+
+	const refreshBranchDialogData = useCallback(async () => {
+		setIsBranchDataLoading(true);
+		try {
+			const [branchesResult, statusResult] = await Promise.all([
+				invoke<LocalBranch[]>('list_local_branches', {path: repo.path}),
+				invoke<RepoWorkingTreeStatus>('get_repo_working_tree_status', {
+					path: repo.path,
+				}),
+			]);
+			setLocalBranches(branchesResult);
+			setWorkingTreeStatus(statusResult);
+			setSelectedBranchName(previousSelection => {
+				if (
+					previousSelection &&
+					branchesResult.some(
+						localBranch => localBranch.name === previousSelection,
+					)
+				) {
+					return previousSelection;
+				}
+				const firstNonCurrent = branchesResult.find(
+					localBranch => !localBranch.isCurrent,
+				);
+				return firstNonCurrent?.name ?? branchesResult[0]?.name ?? null;
+			});
+		} catch (error) {
+			toast.error(String(error));
+		} finally {
+			setIsBranchDataLoading(false);
+		}
+	}, [repo.path]);
+
+	async function handleSwitchBranch() {
+		if (!selectedBranchName || !canSwitchBranch) return;
+		setIsSwitchingBranch(true);
+		try {
+			const message = await invoke<string>('switch_branch', {
+				path: repo.path,
+				targetBranch: selectedBranchName,
+				moveChanges: moveChangesOnSwitch,
+			});
+			toast.success(message);
+			await refreshBranchDialogData();
+			onReposChange();
+			onCheckRepoUpdates();
+			onRepoSelect({...repo});
+		} catch (error) {
+			toast.error(String(error));
+		} finally {
+			setIsSwitchingBranch(false);
+		}
+	}
+
+	async function handleCreateBranch() {
+		const trimmed = newBranchName.trim();
+		if (!trimmed) return;
+		setIsCreatingBranch(true);
+		try {
+			const message = await invoke<string>('create_local_branch', {
+				path: repo.path,
+				name: trimmed,
+			});
+			toast.success(message);
+			setNewBranchName('');
+			await refreshBranchDialogData();
+			setSelectedBranchName(trimmed);
+		} catch (error) {
+			toast.error(String(error));
+		} finally {
+			setIsCreatingBranch(false);
+		}
+	}
+
+	async function handleDeleteBranch() {
+		if (!selectedBranchName || !canDeleteBranch) return;
+		setIsDeletingBranch(true);
+		try {
+			const message = await invoke<string>('delete_local_branch', {
+				path: repo.path,
+				branchName: selectedBranchName,
+				force: deleteForce,
+			});
+			toast.success(message);
+			await refreshBranchDialogData();
+		} catch (error) {
+			toast.error(String(error));
+		} finally {
+			setIsDeletingBranch(false);
+		}
+	}
 
 	async function handleCreateAgent() {
 		const trimmed = newAgentName.trim();
@@ -281,6 +418,15 @@ function DraggableRepoItem({
 					>
 						<Download className="size-4" />
 						Pull changes
+					</ContextMenuItem>
+					<ContextMenuItem
+						onClick={() => {
+							setIsBranchDialogOpen(true);
+							void refreshBranchDialogData();
+						}}
+					>
+						<GitBranch className="size-4" />
+						Manage branches
 					</ContextMenuItem>
 					<ContextMenuSeparator />
 					{(moveTargets.length > 0 || canMoveToUngrouped) && (
@@ -568,6 +714,204 @@ function DraggableRepoItem({
 					</form>
 				</DialogContent>
 			</Dialog>
+			<Dialog
+				open={isBranchDialogOpen}
+				onOpenChange={open => {
+					setIsBranchDialogOpen(open);
+					if (open) {
+						void refreshBranchDialogData();
+					}
+				}}
+			>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>Manage branches</DialogTitle>
+						<DialogDescription>
+							Switch, create, and remove local branches for{' '}
+							<span className="font-medium text-foreground">{repo.name}</span>.
+						</DialogDescription>
+					</DialogHeader>
+					<div className="space-y-4 py-2">
+						<div className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+							<p>
+								Current branch:{' '}
+								<span className="font-medium text-foreground">
+									{currentBranchName ?? 'Unknown'}
+								</span>
+							</p>
+							{workingTreeStatus?.hasChanges && (
+								<p className="mt-1 text-amber-700 dark:text-amber-300">
+									This repo has uncommitted changes.
+								</p>
+							)}
+						</div>
+
+						<div className="space-y-2">
+							<p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+								Local branches
+							</p>
+							<ScrollArea className="max-h-44 rounded-md border">
+								<div className="space-y-1 p-2">
+									{isBranchDataLoading ? (
+										<p className="px-1 py-1 text-xs text-muted-foreground">
+											Loading branches...
+										</p>
+									) : localBranches.length === 0 ? (
+										<p className="px-1 py-1 text-xs text-muted-foreground">
+											No local branches found.
+										</p>
+									) : (
+										localBranches.map(localBranch => {
+											const isSelected =
+												selectedBranchName === localBranch.name;
+											return (
+												<button
+													key={localBranch.name}
+													type="button"
+													className={cn(
+														'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent',
+														isSelected && 'bg-accent',
+													)}
+													onClick={() =>
+														setSelectedBranchName(localBranch.name)
+													}
+												>
+													<GitBranch className="size-3.5 text-muted-foreground" />
+													<span className="truncate">{localBranch.name}</span>
+													{localBranch.isCurrent && (
+														<span className="ml-auto text-[10px] text-muted-foreground">
+															current
+														</span>
+													)}
+													{isSelected && <Check className="size-3.5" />}
+												</button>
+											);
+										})
+									)}
+								</div>
+							</ScrollArea>
+						</div>
+
+						<div className="space-y-2 rounded-md border p-3">
+							<p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+								When switching with uncommitted changes
+							</p>
+							<div className="flex gap-2">
+								<Button
+									type="button"
+									size="sm"
+									variant={moveChangesOnSwitch ? 'default' : 'outline'}
+									onClick={() => setMoveChangesOnSwitch(true)}
+									className="flex-1"
+								>
+									Move changes with me
+								</Button>
+								<Button
+									type="button"
+									size="sm"
+									variant={moveChangesOnSwitch ? 'outline' : 'default'}
+									onClick={() => setMoveChangesOnSwitch(false)}
+									className="flex-1"
+								>
+									Keep on old branch
+								</Button>
+							</div>
+							{workingTreeStatus?.hasChanges && !moveChangesOnSwitch && (
+								<p className="text-xs text-muted-foreground">
+									Keeping changes uses stash before switching so your current
+									working tree stays clean on the new branch.
+								</p>
+							)}
+							<Button
+								type="button"
+								size="sm"
+								onClick={() => void handleSwitchBranch()}
+								disabled={!canSwitchBranch || isSwitchingBranch}
+								className="w-full"
+							>
+								{isSwitchingBranch && (
+									<LoaderCircle className="size-3.5 animate-spin" />
+								)}
+								Switch to selected branch
+							</Button>
+						</div>
+
+						<div className="space-y-2 rounded-md border p-3">
+							<p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+								Create branch
+							</p>
+							<div className="flex gap-2">
+								<Input
+									value={newBranchName}
+									onChange={event => setNewBranchName(event.target.value)}
+									placeholder="feature/my-branch"
+									disabled={isCreatingBranch}
+								/>
+								<Button
+									type="button"
+									onClick={() => void handleCreateBranch()}
+									disabled={
+										newBranchName.trim().length === 0 || isCreatingBranch
+									}
+								>
+									{isCreatingBranch && (
+										<LoaderCircle className="size-3.5 animate-spin" />
+									)}
+									Create
+								</Button>
+							</div>
+						</div>
+
+						<div className="space-y-2 rounded-md border border-destructive/30 p-3">
+							<p className="text-xs font-medium text-destructive uppercase tracking-wide">
+								Remove branch
+							</p>
+							<div className="flex gap-2">
+								<Button
+									type="button"
+									size="sm"
+									variant={deleteForce ? 'outline' : 'default'}
+									onClick={() => setDeleteForce(false)}
+									className="flex-1"
+								>
+									Safe delete
+								</Button>
+								<Button
+									type="button"
+									size="sm"
+									variant={deleteForce ? 'default' : 'outline'}
+									onClick={() => setDeleteForce(true)}
+									className="flex-1"
+								>
+									Force delete
+								</Button>
+							</div>
+							<Button
+								type="button"
+								size="sm"
+								variant="destructive"
+								onClick={() => void handleDeleteBranch()}
+								disabled={!canDeleteBranch || isDeletingBranch}
+								className="w-full"
+							>
+								{isDeletingBranch && (
+									<LoaderCircle className="size-3.5 animate-spin" />
+								)}
+								Delete selected branch
+							</Button>
+						</div>
+					</div>
+					<DialogFooter>
+						<Button
+							type="button"
+							variant="outline"
+							onClick={() => setIsBranchDialogOpen(false)}
+						>
+							Close
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
 		</SidebarMenuItem>
 	);
 }
@@ -637,6 +981,7 @@ function GroupSection({
 	onAddRepo,
 	onPointerDragStart,
 	onPullRepo,
+	onCheckRepoUpdates,
 }: {
 	group: Group;
 	repos: Repo[];
@@ -662,6 +1007,7 @@ function GroupSection({
 	onAddRepo: (groupId: number) => void;
 	onPointerDragStart: (event: React.PointerEvent, repo: Repo) => void;
 	onPullRepo: (repo: Repo) => Promise<void>;
+	onCheckRepoUpdates: () => void;
 }) {
 	const [isOpen, setIsOpen] = useState(true);
 	const [isRenaming, setIsRenaming] = useState(false);
@@ -801,6 +1147,7 @@ function GroupSection({
 											onReposChange={onReposChange}
 											onPointerDragStart={onPointerDragStart}
 											onPullRepo={onPullRepo}
+											onCheckRepoUpdates={onCheckRepoUpdates}
 										/>
 									))
 								)}
@@ -896,6 +1243,7 @@ function UngroupedSection({
 	onReposChange,
 	onPointerDragStart,
 	onPullRepo,
+	onCheckRepoUpdates,
 }: {
 	repos: Repo[];
 	groups: Group[];
@@ -918,6 +1266,7 @@ function UngroupedSection({
 	onReposChange: () => void;
 	onPointerDragStart: (event: React.PointerEvent, repo: Repo) => void;
 	onPullRepo: (repo: Repo) => Promise<void>;
+	onCheckRepoUpdates: () => void;
 }) {
 	const {isDragOver, handlers: dropHandlers} = useDropZone(
 		async (repoId: number) => {
@@ -970,6 +1319,7 @@ function UngroupedSection({
 							onReposChange={onReposChange}
 							onPointerDragStart={onPointerDragStart}
 							onPullRepo={onPullRepo}
+							onCheckRepoUpdates={onCheckRepoUpdates}
 						/>
 					))}
 				</SidebarMenu>
@@ -1195,6 +1545,7 @@ export function RepoSidebar({
 							}}
 							onPointerDragStart={handlePointerDragStart}
 							onPullRepo={onPullRepo}
+							onCheckRepoUpdates={onCheckRepoUpdates}
 						/>
 					))}
 
@@ -1222,6 +1573,7 @@ export function RepoSidebar({
 							onReposChange={onReposChange}
 							onPointerDragStart={handlePointerDragStart}
 							onPullRepo={onPullRepo}
+							onCheckRepoUpdates={onCheckRepoUpdates}
 						/>
 					)}
 				</div>
