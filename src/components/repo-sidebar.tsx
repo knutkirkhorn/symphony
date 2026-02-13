@@ -583,7 +583,7 @@ function DraggableRepoItem({
 													size="sm"
 													isActive={selectedAgentId === agent.id}
 													className={cn(
-														'pr-8 transition-all',
+														'w-full pr-8 transition-all',
 														'data-[active=true]:bg-primary/16 data-[active=true]:text-primary data-[active=true]:font-semibold data-[active=true]:shadow-sm data-[active=true]:ring-1 data-[active=true]:ring-primary/35',
 													)}
 												>
