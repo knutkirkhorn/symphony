@@ -1644,7 +1644,11 @@ export function RepoSidebar({
 			<SidebarFooter className="border-t border-sidebar-border">
 				<Button
 					variant={isSettingsActive ? 'secondary' : 'ghost'}
-					className="w-full justify-start"
+					className={cn(
+						'w-full justify-start transition-all',
+						isSettingsActive &&
+							'bg-primary/15 text-primary font-semibold ring-1 ring-primary/35 shadow-sm [&>svg]:text-primary',
+					)}
 					onClick={onSettingsClick}
 				>
 					<Settings className="size-4" />
