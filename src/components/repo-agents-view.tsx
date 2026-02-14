@@ -1,5 +1,4 @@
 import {Button} from '@/components/ui/button';
-import {Input} from '@/components/ui/input';
 import {ScrollArea} from '@/components/ui/scroll-area';
 import {Separator} from '@/components/ui/separator';
 import type {Agent, AgentConversationEntry} from '@/lib/types';
@@ -73,8 +72,8 @@ export function RepoAgentsView({
 
 					<div className="rounded-md border">
 						<div className="space-y-2 p-3">
-							<Input
-								placeholder="Enter prompt for selected agent..."
+							<textarea
+								placeholder="Enter prompt for selected agent... (Shift+Enter for new line)"
 								value={prompt}
 								onChange={event => {
 									onPromptChange(event.target.value);
@@ -86,6 +85,13 @@ export function RepoAgentsView({
 									}
 								}}
 								disabled={!selectedAgent || isRunning}
+								rows={3}
+								className={cn(
+									'flex w-full min-w-0 resize-y rounded-md border border-input bg-transparent px-3 py-2 text-base shadow-xs transition-[color,box-shadow] outline-none placeholder:text-muted-foreground',
+									'focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]',
+									'disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50',
+									'min-h-9 max-h-48 overflow-y-auto md:text-sm',
+								)}
 							/>
 							<div className="flex items-center justify-end gap-2">
 								<Button
