@@ -80,6 +80,7 @@ function isMacOS() {
 
 const SHORTCUT_MODIFIER_LABEL = isMacOS() ? 'Cmd' : 'Ctrl';
 const SIMULATOR_MODE_STORAGE_KEY = 'symphony:simulator-mode';
+const RAW_LOGS_STORAGE_KEY = 'symphony:raw-logs';
 
 function randomRunId() {
 	if ('randomUUID' in crypto) return crypto.randomUUID();
@@ -186,6 +187,13 @@ function App() {
 	const [isSimulatorMode, setIsSimulatorMode] = useState<boolean>(() => {
 		try {
 			return localStorage.getItem(SIMULATOR_MODE_STORAGE_KEY) === 'true';
+		} catch {
+			return false;
+		}
+	});
+	const [showRawLogs, setShowRawLogs] = useState<boolean>(() => {
+		try {
+			return localStorage.getItem(RAW_LOGS_STORAGE_KEY) === 'true';
 		} catch {
 			return false;
 		}
@@ -440,6 +448,17 @@ function App() {
 			// Ignore storage errors (private mode / restricted environments).
 		}
 	}, [isSimulatorMode]);
+
+	useEffect(() => {
+		try {
+			localStorage.setItem(
+				RAW_LOGS_STORAGE_KEY,
+				showRawLogs ? 'true' : 'false',
+			);
+		} catch {
+			// Ignore storage errors (private mode / restricted environments).
+		}
+	}, [showRawLogs]);
 
 	useEffect(() => {
 		if (!isRuntimeAuthorized) return;
@@ -1009,6 +1028,8 @@ function App() {
 						versionError={versionError}
 						simulatorMode={isSimulatorMode}
 						onSimulatorModeChange={setIsSimulatorMode}
+						rawLogs={showRawLogs}
+						onRawLogsChange={setShowRawLogs}
 					/>
 				) : repos.length === 0 ? (
 					<EmptyState onReposChange={loadRepos} />
@@ -1096,6 +1117,7 @@ function App() {
 								messages={selectedAgentMessages}
 								logs={selectedAgentLogs}
 								isRunning={selectedAgentIsRunning}
+								showRawLogs={showRawLogs}
 								onPromptChange={setAgentPrompt}
 								onRunPrompt={() => void runPromptOnAgent()}
 								onStopRun={() => void stopAgentRun()}

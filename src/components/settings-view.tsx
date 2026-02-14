@@ -4,6 +4,8 @@ type SettingsViewProperties = {
 	versionError: string | null;
 	simulatorMode: boolean;
 	onSimulatorModeChange: (enabled: boolean) => void;
+	rawLogs: boolean;
+	onRawLogsChange: (enabled: boolean) => void;
 };
 
 export function SettingsView({
@@ -12,6 +14,8 @@ export function SettingsView({
 	versionError,
 	simulatorMode,
 	onSimulatorModeChange,
+	rawLogs,
+	onRawLogsChange,
 }: SettingsViewProperties) {
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
@@ -64,6 +68,37 @@ export function SettingsView({
 							<span
 								className={`inline-block size-5 rounded-full bg-background shadow transition-transform ${
 									simulatorMode ? 'translate-x-5' : 'translate-x-0'
+								}`}
+							/>
+						</button>
+					</div>
+				</div>
+				<div className="mt-4 max-w-xl rounded-lg border bg-card p-4">
+					<p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+						Agent view
+					</p>
+					<div className="mt-3 flex items-center justify-between gap-3">
+						<div>
+							<p className="text-sm font-medium">Raw logs</p>
+							<p className="text-xs text-muted-foreground">
+								Show raw logs for each agent in the agent view.
+							</p>
+						</div>
+						<button
+							type="button"
+							role="switch"
+							aria-checked={rawLogs}
+							aria-label="Toggle raw logs"
+							className={`relative inline-flex h-6 w-11 items-center rounded-full border transition-colors ${
+								rawLogs
+									? 'border-yellow-500 bg-yellow-400/80'
+									: 'border-border bg-muted'
+							}`}
+							onClick={() => onRawLogsChange(!rawLogs)}
+						>
+							<span
+								className={`inline-block size-5 rounded-full bg-background shadow transition-transform ${
+									rawLogs ? 'translate-x-5' : 'translate-x-0'
 								}`}
 							/>
 						</button>

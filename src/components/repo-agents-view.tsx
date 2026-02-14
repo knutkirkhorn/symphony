@@ -11,6 +11,7 @@ type RepoAgentsViewProperties = {
 	messages: AgentConversationEntry[];
 	logs: string[];
 	isRunning: boolean;
+	showRawLogs: boolean;
 	onPromptChange: (prompt: string) => void;
 	onRunPrompt: () => void;
 	onStopRun: () => void;
@@ -22,6 +23,7 @@ export function RepoAgentsView({
 	messages,
 	logs,
 	isRunning,
+	showRawLogs,
 	onPromptChange,
 	onRunPrompt,
 	onStopRun,
@@ -103,24 +105,26 @@ export function RepoAgentsView({
 						</div>
 					</div>
 
-					<div className="min-h-0 rounded-md border">
-						<div className="border-b px-3 py-2">
-							<p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-								Raw logs
-							</p>
-						</div>
-						<ScrollArea className="h-36">
-							<div className="space-y-1 p-3 font-mono text-xs">
-								{logs.length === 0 ? (
-									<p className="text-muted-foreground">No logs yet.</p>
-								) : (
-									logs.map((line, index) => (
-										<p key={`${index}-${line.slice(0, 24)}`}>{line}</p>
-									))
-								)}
+					{showRawLogs && (
+						<div className="min-h-0 rounded-md border">
+							<div className="border-b px-3 py-2">
+								<p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+									Raw logs
+								</p>
 							</div>
-						</ScrollArea>
-					</div>
+							<ScrollArea className="h-36">
+								<div className="space-y-1 p-3 font-mono text-xs">
+									{logs.length === 0 ? (
+										<p className="text-muted-foreground">No logs yet.</p>
+									) : (
+										logs.map((line, index) => (
+											<p key={`${index}-${line.slice(0, 24)}`}>{line}</p>
+										))
+									)}
+								</div>
+							</ScrollArea>
+						</div>
+					)}
 				</div>
 			</div>
 		</div>
