@@ -9,7 +9,6 @@ import {
 	AlertDialogFooter,
 	AlertDialogHeader,
 	AlertDialogTitle,
-	AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import {Button} from '@/components/ui/button';
 import {
@@ -39,6 +38,10 @@ import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
+	DropdownMenuSeparator,
+	DropdownMenuSub,
+	DropdownMenuSubContent,
+	DropdownMenuSubTrigger,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {Input} from '@/components/ui/input';
@@ -233,6 +236,7 @@ function DraggableRepoItem({
 	const [isAgentsOpen, setIsAgentsOpen] = useState(isActive);
 	const [isCreatingInlineAgent, setIsCreatingInlineAgent] = useState(false);
 	const [isRenameAgentDialogOpen, setIsRenameAgentDialogOpen] = useState(false);
+	const [isRemoveRepoDialogOpen, setIsRemoveRepoDialogOpen] = useState(false);
 	const [agentToRename, setAgentToRename] = useState<Agent | null>(null);
 	const [renameAgentName, setRenameAgentName] = useState('');
 	const [newAgentName, setNewAgentName] = useState('');
@@ -489,6 +493,82 @@ function DraggableRepoItem({
 					</ContextMenuItem>
 				</ContextMenuContent>
 			</ContextMenu>
+			<DropdownMenu>
+				<DropdownMenuTrigger asChild>
+					<SidebarMenuAction
+						showOnHover
+						onClick={event => event.stopPropagation()}
+						title="More actions"
+					>
+						<MoreHorizontal className="size-3.5" />
+					</SidebarMenuAction>
+				</DropdownMenuTrigger>
+				<DropdownMenuContent
+					align="end"
+					side="right"
+					onClick={event => event.stopPropagation()}
+				>
+					<DropdownMenuItem
+						onClick={() => void onPullRepo(repo)}
+						disabled={syncStatus ? !syncStatus.has_upstream : false}
+					>
+						<Download className="size-4" />
+						Pull changes
+					</DropdownMenuItem>
+					<DropdownMenuItem
+						onClick={() => {
+							setIsBranchDialogOpen(true);
+							void refreshBranchDialogData();
+						}}
+					>
+						<GitBranch className="size-4" />
+						Change branch
+					</DropdownMenuItem>
+					{(moveTargets.length > 0 || canMoveToUngrouped) && (
+						<>
+							<DropdownMenuSeparator />
+							<DropdownMenuSub>
+								<DropdownMenuSubTrigger>
+									<ArrowRightLeft className="size-4" />
+									Move to...
+								</DropdownMenuSubTrigger>
+								<DropdownMenuSubContent>
+									{moveTargets.map(group => (
+										<DropdownMenuItem
+											key={group.id}
+											onClick={() =>
+												handleMoveToGroup(repo.id, group.id, onReposChange)
+											}
+										>
+											{group.name}
+										</DropdownMenuItem>
+									))}
+									{canMoveToUngrouped && (
+										<>
+											{moveTargets.length > 0 && <DropdownMenuSeparator />}
+											<DropdownMenuItem
+												onClick={() =>
+													handleMoveToGroup(repo.id, null, onReposChange)
+												}
+											>
+												Ungrouped
+											</DropdownMenuItem>
+										</>
+									)}
+								</DropdownMenuSubContent>
+							</DropdownMenuSub>
+						</>
+					)}
+					<DropdownMenuSeparator />
+					<DropdownMenuItem
+						variant="destructive"
+						onClick={() => setIsRemoveRepoDialogOpen(true)}
+					>
+						<Trash2 className="size-4" />
+						Remove
+					</DropdownMenuItem>
+				</DropdownMenuContent>
+			</DropdownMenu>
 			<SidebarMenuAction
 				onClick={event => {
 					event.stopPropagation();
@@ -612,20 +692,45 @@ function DraggableRepoItem({
 														<span>{agent.name}</span>
 													</button>
 												</SidebarMenuSubButton>
-												<Button
-													type="button"
-													variant="ghost"
-													size="icon"
-													className="absolute top-1/2 right-1 size-5 -translate-y-1/2 text-sidebar-foreground/50 opacity-0 transition-opacity hover:text-destructive group-hover/menu-sub-item:opacity-100"
-													disabled={isDeletingAgentId === agent.id}
-													onClick={event => {
-														event.stopPropagation();
-														void onDeleteAgent(agent);
-													}}
-													title={`Delete ${agent.name}`}
-												>
-													<Trash2 className="size-3.5" />
-												</Button>
+												<DropdownMenu>
+													<DropdownMenuTrigger asChild>
+														<Button
+															type="button"
+															variant="ghost"
+															size="icon"
+															className="absolute top-1/2 right-1 size-5 -translate-y-1/2 text-sidebar-foreground/50 opacity-0 transition-opacity hover:text-sidebar-foreground group-hover/menu-sub-item:opacity-100"
+															title="More actions"
+															onClick={event => event.stopPropagation()}
+														>
+															<MoreHorizontal className="size-3.5" />
+														</Button>
+													</DropdownMenuTrigger>
+													<DropdownMenuContent
+														align="end"
+														side="right"
+														onClick={event => event.stopPropagation()}
+													>
+														<DropdownMenuItem
+															onClick={() => {
+																setAgentToRename(agent);
+																setRenameAgentName(agent.name);
+																setIsRenameAgentDialogOpen(true);
+															}}
+														>
+															<Pencil className="size-4" />
+															Rename
+														</DropdownMenuItem>
+														<DropdownMenuSeparator />
+														<DropdownMenuItem
+															variant="destructive"
+															disabled={isDeletingAgentId === agent.id}
+															onClick={() => void onDeleteAgent(agent)}
+														>
+															<Trash2 className="size-4" />
+															Delete
+														</DropdownMenuItem>
+													</DropdownMenuContent>
+												</DropdownMenu>
 											</div>
 										</ContextMenuTrigger>
 										<ContextMenuContent>
@@ -662,17 +767,10 @@ function DraggableRepoItem({
 					</SidebarMenuSub>
 				</CollapsibleContent>
 			</Collapsible>
-			<AlertDialog>
-				<AlertDialogTrigger asChild>
-					<SidebarMenuAction
-						showOnHover
-						onClick={event => {
-							event.stopPropagation();
-						}}
-					>
-						<Trash2 className="size-3.5" />
-					</SidebarMenuAction>
-				</AlertDialogTrigger>
+			<AlertDialog
+				open={isRemoveRepoDialogOpen}
+				onOpenChange={setIsRemoveRepoDialogOpen}
+			>
 				<AlertDialogContent>
 					<AlertDialogHeader>
 						<AlertDialogTitle>Remove repository</AlertDialogTitle>
