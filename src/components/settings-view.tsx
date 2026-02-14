@@ -44,7 +44,7 @@ export function SettingsView({
 				</div>
 				<div className="mt-4 max-w-xl rounded-lg border bg-card p-4">
 					<p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-						Agent testing
+						Development settings
 					</p>
 					<div className="mt-3 flex items-center justify-between gap-3">
 						<div>
@@ -72,11 +72,7 @@ export function SettingsView({
 							/>
 						</button>
 					</div>
-				</div>
-				<div className="mt-4 max-w-xl rounded-lg border bg-card p-4">
-					<p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-						Agent view
-					</p>
+
 					<div className="mt-3 flex items-center justify-between gap-3">
 						<div>
 							<p className="text-sm font-medium">Raw logs</p>
