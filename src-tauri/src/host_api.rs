@@ -414,7 +414,8 @@ fn invoke_dispatch(
             Ok(Value::Null)
         }
         "stop_repo_agent" => {
-            stop_repo_agent(app.clone(), agent_runtime)?;
+            let parsed: AgentIdArgs = deserialize_args(args)?;
+            stop_repo_agent(app.clone(), agent_runtime, parsed.agent_id)?;
             Ok(Value::Null)
         }
         "list_groups" => Ok(serde_json::to_value(list_groups(db)?).map_err(|e| e.to_string())?),

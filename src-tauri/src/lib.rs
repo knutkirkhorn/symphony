@@ -12,7 +12,7 @@ use commands::{
 };
 use db::Database;
 use host_api::{start_host_bridge, HostBridgeState};
-use std::sync::Mutex;
+use std::collections::HashMap;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -25,7 +25,7 @@ pub fn run() {
         .manage(database)
         .manage(host_bridge_state.clone())
         .manage(AgentRuntimeState {
-            pid: Mutex::new(None),
+            pids_by_agent_id: std::sync::Mutex::new(HashMap::new()),
         })
         .setup(move |app| {
             start_host_bridge(app.handle().clone(), host_bridge_state.clone());

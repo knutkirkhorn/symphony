@@ -3,6 +3,7 @@ use crate::host_api::HostBridgeState;
 use rusqlite::Connection;
 use serde::Serialize;
 use serde_json::to_value;
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::process::Command;
@@ -36,7 +37,7 @@ pub struct Agent {
 }
 
 pub struct AgentRuntimeState {
-    pub pid: Mutex<Option<u32>>,
+    pub pids_by_agent_id: Mutex<HashMap<i64, u32>>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -55,11 +56,19 @@ pub struct AgentDonePayload {
     pub success: bool,
 }
 
-fn emit_runtime_event<T: Serialize + Clone>(app: &AppHandle, event_name: &str, payload: T) {
+fn emit_runtime_event<T: Serialize + Clone>(
+    app: &AppHandle,
+    event_name: &str,
+    payload: T,
+    bridge_state: Option<&HostBridgeState>,
+) {
     let _ = app.emit(event_name, payload.clone());
-    if let Some(bridge_state) = app.try_state::<HostBridgeState>() {
+    if let Some(bridge) = bridge_state {
         let json_payload = to_value(payload).unwrap_or(serde_json::Value::Null);
-        bridge_state.send_event(event_name, json_payload);
+        bridge.send_event(event_name, json_payload);
+    } else if let Some(bridge) = app.try_state::<HostBridgeState>() {
+        let json_payload = to_value(payload).unwrap_or(serde_json::Value::Null);
+        bridge.send_event(event_name, json_payload);
     }
 }
 
@@ -976,9 +985,9 @@ pub fn run_repo_agent(
     }
 
     {
-        let pid_guard = state.pid.lock().map_err(|e| e.to_string())?;
-        if pid_guard.is_some() {
-            return Err("An agent is already running".to_string());
+        let pid_guard = state.pids_by_agent_id.lock().map_err(|e| e.to_string())?;
+        if pid_guard.contains_key(&agent_id) {
+            return Err("This agent is already running".to_string());
         }
     }
 
@@ -1004,15 +1013,13 @@ pub fn run_repo_agent(
         process.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     }
 
-    let mut child = process
-        .spawn()
-        .map_err(|e| {
-            if use_simulator {
-                format!("Failed to start simulator agent: {}", e)
-            } else {
-                format!("Failed to start Cursor agent: {}", e)
-            }
-        })?;
+    let mut child = process.spawn().map_err(|e| {
+        if use_simulator {
+            format!("Failed to start simulator agent: {}", e)
+        } else {
+            format!("Failed to start Cursor agent: {}", e)
+        }
+    })?;
 
     let stdout = child
         .stdout
@@ -1024,72 +1031,87 @@ pub fn run_repo_agent(
         .ok_or("Failed to capture Cursor agent stderr".to_string())?;
 
     {
-        let mut pid_guard = state.pid.lock().map_err(|e| e.to_string())?;
-        *pid_guard = Some(child.id());
+        let mut pid_guard = state.pids_by_agent_id.lock().map_err(|e| e.to_string())?;
+        pid_guard.insert(agent_id, child.id());
     }
 
     let app_for_worker = app.clone();
+    let bridge_state = app.try_state::<HostBridgeState>().map(|s| (&*s).clone());
+    let bridge_for_stderr = bridge_state.clone();
     std::thread::spawn(move || {
         let run_id_for_stderr = run_id.clone();
         let app_for_stderr = app_for_worker.clone();
+        let bridge_ref = bridge_state.as_ref();
         let stderr_handle = std::thread::spawn(move || {
             let reader = BufReader::new(stderr);
+            let bridge_ref_inner = bridge_for_stderr.as_ref();
             for line in reader.lines().map_while(Result::ok) {
-                    emit_runtime_event(
-                        &app_for_stderr,
-                        "repo-agent-stderr",
-                        AgentStreamPayload {
-                            run_id: run_id_for_stderr.clone(),
-                            agent_id,
-                            line,
-                        },
-                    );
+                emit_runtime_event(
+                    &app_for_stderr,
+                    "repo-agent-stderr",
+                    AgentStreamPayload {
+                        run_id: run_id_for_stderr.clone(),
+                        agent_id,
+                        line,
+                    },
+                    bridge_ref_inner,
+                );
             }
         });
 
         let reader = BufReader::new(stdout);
         for line in reader.lines().map_while(Result::ok) {
-                emit_runtime_event(
-                    &app_for_worker,
-                    "repo-agent-stdout",
-                    AgentStreamPayload {
-                        run_id: run_id.clone(),
-                        agent_id,
-                        line,
-                    },
-                );
+            emit_runtime_event(
+                &app_for_worker,
+                "repo-agent-stdout",
+                AgentStreamPayload {
+                    run_id: run_id.clone(),
+                    agent_id,
+                    line,
+                },
+                bridge_ref,
+            );
         }
 
         let _ = stderr_handle.join();
         let success = child.wait().map(|status| status.success()).unwrap_or(false);
 
-        if let Ok(mut pid_guard) = app_for_worker.state::<AgentRuntimeState>().pid.lock() {
-            *pid_guard = None;
+        if let Ok(mut pid_guard) = app_for_worker
+            .state::<AgentRuntimeState>()
+            .pids_by_agent_id
+            .lock()
+        {
+            pid_guard.remove(&agent_id);
         }
 
-            emit_runtime_event(
-                &app_for_worker,
-                "repo-agent-done",
-                AgentDonePayload {
-                    run_id,
-                    agent_id,
-                    success,
-                },
-            );
+        emit_runtime_event(
+            &app_for_worker,
+            "repo-agent-done",
+            AgentDonePayload {
+                run_id,
+                agent_id,
+                success,
+            },
+            bridge_ref,
+        );
     });
 
     Ok(())
 }
 
 #[tauri::command]
-pub fn stop_repo_agent(app: AppHandle, state: State<'_, AgentRuntimeState>) -> Result<(), String> {
+pub fn stop_repo_agent(
+    app: AppHandle,
+    state: State<'_, AgentRuntimeState>,
+    agent_id: i64,
+) -> Result<(), String> {
     let pid = {
-        let guard = state.pid.lock().map_err(|e| e.to_string())?;
-        *guard
+        let guard = state.pids_by_agent_id.lock().map_err(|e| e.to_string())?;
+        guard.get(&agent_id).copied()
     };
 
     let Some(pid) = pid else {
-        return Err("No agent process is currently running".to_string());
+        return Err("No process is currently running for this agent".to_string());
     };
 
     #[cfg(target_os = "windows")]
@@ -1119,11 +1141,11 @@ pub fn stop_repo_agent(app: AppHandle, state: State<'_, AgentRuntimeState>) -> R
     }
 
     {
-        let mut guard = state.pid.lock().map_err(|e| e.to_string())?;
-        *guard = None;
+        let mut guard = state.pids_by_agent_id.lock().map_err(|e| e.to_string())?;
+        guard.remove(&agent_id);
     }
 
-    emit_runtime_event(&app, "repo-agent-force-stop", true);
+    emit_runtime_event(&app, "repo-agent-force-stop", true, None);
     Ok(())
 }
 

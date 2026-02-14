@@ -62,6 +62,16 @@ type AgentDonePayload = {
 	success: boolean;
 };
 
+type AgentStreamPayloadWire = AgentStreamPayload & {
+	run_id?: string;
+	agent_id?: number;
+};
+
+type AgentDonePayloadWire = AgentDonePayload & {
+	run_id?: string;
+	agent_id?: number;
+};
+
 function isMacOS() {
 	if (typeof navigator === 'undefined') return false;
 	const platform = navigator.platform.toUpperCase();
@@ -200,7 +210,7 @@ function App() {
 	);
 	const [selectedAgentId, setSelectedAgentId] = useState<number | null>(null);
 	const [agentPrompt, setAgentPrompt] = useState('');
-	const [isAgentRunning, setIsAgentRunning] = useState(false);
+	const [runningAgentIds, setRunningAgentIds] = useState<number[]>([]);
 	const [agentMessagesById, setAgentMessagesById] = useState<
 		Record<number, AgentConversationEntry[]>
 	>({});
@@ -230,8 +240,6 @@ function App() {
 	const diffRequestIdReference = useRef(0);
 	const agentsRequestIdReference = useRef(0);
 	const branchesRequestIdReference = useRef(0);
-	const activeRunIdReference = useRef<string | null>(null);
-	const activeRunAgentIdReference = useRef<number | null>(null);
 	const isRuntimeAuthorized = isTauriRuntime || hostAuthState === 'authorized';
 
 	const authenticateHostToken = useCallback(async (token: string) => {
@@ -447,11 +455,9 @@ function App() {
 			setActiveRepoViewTab('agent');
 			setSelectedAgentId(null);
 			setAgentPrompt('');
-			setIsAgentRunning(false);
+			setRunningAgentIds([]);
 			setAgentMessagesById({});
 			setAgentLogsById({});
-			activeRunIdReference.current = null;
-			activeRunAgentIdReference.current = null;
 			return;
 		}
 
@@ -691,39 +697,25 @@ function App() {
 		const unlistenStdoutPromise = listen<AgentStreamPayload>(
 			'repo-agent-stdout',
 			event => {
-				const activeRunId = activeRunIdReference.current;
-				const activeAgentId = activeRunAgentIdReference.current;
-				if (!activeRunId || !activeAgentId) return;
-				if (
-					event.payload.runId !== activeRunId ||
-					event.payload.agentId !== activeAgentId
-				) {
-					return;
-				}
-
-				appendAgentLog(activeAgentId, event.payload.line);
-				const parsed = parseAgentConversationLine(event.payload.line);
-				if (parsed) appendAgentMessage(activeAgentId, parsed);
+				const payload = event.payload as AgentStreamPayloadWire;
+				const agentId = payload.agentId ?? payload.agent_id;
+				if (typeof agentId !== 'number') return;
+				appendAgentLog(agentId, payload.line);
+				const parsed = parseAgentConversationLine(payload.line);
+				if (parsed) appendAgentMessage(agentId, parsed);
 			},
 		);
 
 		const unlistenStderrPromise = listen<AgentStreamPayload>(
 			'repo-agent-stderr',
 			event => {
-				const activeRunId = activeRunIdReference.current;
-				const activeAgentId = activeRunAgentIdReference.current;
-				if (!activeRunId || !activeAgentId) return;
-				if (
-					event.payload.runId !== activeRunId ||
-					event.payload.agentId !== activeAgentId
-				) {
-					return;
-				}
-
-				appendAgentLog(activeAgentId, `stderr: ${event.payload.line}`);
-				appendAgentMessage(activeAgentId, {
+				const payload = event.payload as AgentStreamPayloadWire;
+				const agentId = payload.agentId ?? payload.agent_id;
+				if (typeof agentId !== 'number') return;
+				appendAgentLog(agentId, `stderr: ${payload.line}`);
+				appendAgentMessage(agentId, {
 					role: 'error',
-					text: event.payload.line,
+					text: payload.line,
 				});
 			},
 		);
@@ -731,25 +723,16 @@ function App() {
 		const unlistenDonePromise = listen<AgentDonePayload>(
 			'repo-agent-done',
 			event => {
-				const activeRunId = activeRunIdReference.current;
-				const activeAgentId = activeRunAgentIdReference.current;
-				if (!activeRunId || !activeAgentId) return;
-				if (
-					event.payload.runId !== activeRunId ||
-					event.payload.agentId !== activeAgentId
-				) {
-					return;
-				}
-
-				appendAgentMessage(activeAgentId, {
-					role: event.payload.success ? 'system' : 'error',
-					text: event.payload.success
+				const payload = event.payload as AgentDonePayloadWire;
+				const agentId = payload.agentId ?? payload.agent_id;
+				if (typeof agentId !== 'number') return;
+				appendAgentMessage(agentId, {
+					role: payload.success ? 'system' : 'error',
+					text: payload.success
 						? 'Agent run completed.'
 						: 'Agent run stopped or failed.',
 				});
-				setIsAgentRunning(false);
-				activeRunIdReference.current = null;
-				activeRunAgentIdReference.current = null;
+				setRunningAgentIds(previous => previous.filter(id => id !== agentId));
 			},
 		);
 
@@ -798,19 +781,23 @@ function App() {
 	const runPromptOnAgent = useCallback(async () => {
 		if (!selectedRepo || !selectedAgentId) return;
 		const trimmedPrompt = agentPrompt.trim();
-		if (!trimmedPrompt || isAgentRunning) return;
+		if (!trimmedPrompt) return;
+		if (runningAgentIds.includes(selectedAgentId)) {
+			toast.error('This agent is already running.');
+			return;
+		}
 
 		const runId = randomRunId();
-		activeRunIdReference.current = runId;
-		activeRunAgentIdReference.current = selectedAgentId;
-		setIsAgentRunning(true);
-
+		setRunningAgentIds(previous =>
+			previous.includes(selectedAgentId)
+				? previous
+				: [...previous, selectedAgentId],
+		);
 		appendAgentMessage(selectedAgentId, {
 			role: 'user',
 			text: trimmedPrompt,
 		});
 		setAgentPrompt('');
-
 		try {
 			await invoke('run_repo_agent', {
 				repoPath: selectedRepo.path,
@@ -825,16 +812,16 @@ function App() {
 				role: 'error',
 				text: String(error),
 			});
-			setIsAgentRunning(false);
-			activeRunIdReference.current = null;
-			activeRunAgentIdReference.current = null;
+			setRunningAgentIds(previous =>
+				previous.filter(id => id !== selectedAgentId),
+			);
 		}
 	}, [
 		selectedRepo,
 		selectedAgentId,
 		agentPrompt,
-		isAgentRunning,
 		isSimulatorMode,
+		runningAgentIds,
 		appendAgentMessage,
 	]);
 
@@ -866,11 +853,7 @@ function App() {
 					delete next[agent.id];
 					return next;
 				});
-				if (activeRunAgentIdReference.current === agent.id) {
-					setIsAgentRunning(false);
-					activeRunIdReference.current = null;
-					activeRunAgentIdReference.current = null;
-				}
+				setRunningAgentIds(previous => previous.filter(id => id !== agent.id));
 				toast.success(`Deleted agent "${agent.name}"`);
 			} catch (error) {
 				toast.error(String(error));
@@ -905,15 +888,13 @@ function App() {
 	}, []);
 
 	const stopAgentRun = useCallback(async () => {
+		if (!selectedAgentId) return;
 		try {
-			await invoke('stop_repo_agent');
-			setIsAgentRunning(false);
-			activeRunIdReference.current = null;
-			activeRunAgentIdReference.current = null;
+			await invoke('stop_repo_agent', {agentId: selectedAgentId});
 		} catch (error) {
 			toast.error(String(error));
 		}
-	}, []);
+	}, [selectedAgentId]);
 
 	async function handleHostLoginSubmit(event: FormEvent) {
 		event.preventDefault();
@@ -929,6 +910,9 @@ function App() {
 		: [];
 	const selectedAgent =
 		selectedRepoAgents.find(agent => agent.id === selectedAgentId) ?? null;
+	const selectedAgentIsRunning = selectedAgentId
+		? runningAgentIds.includes(selectedAgentId)
+		: false;
 	const selectedAgentMessages = selectedAgentId
 		? (agentMessagesById[selectedAgentId] ?? [])
 		: [];
@@ -983,10 +967,8 @@ function App() {
 				agentsErrorByRepoId={agentsErrorByRepoId}
 				isCheckingRepoUpdates={isCheckingRepoUpdates}
 				selectedRepoId={selectedRepo?.id ?? null}
-				runningAgentId={
-					isAgentRunning ? (activeRunAgentIdReference.current ?? null) : null
-				}
 				selectedAgentId={activeView === 'settings' ? null : selectedAgentId}
+				runningAgentIds={runningAgentIds}
 				onRepoSelect={repo => {
 					setSelectedRepo(repo);
 					setActiveView('repo');
@@ -1113,7 +1095,7 @@ function App() {
 								prompt={agentPrompt}
 								messages={selectedAgentMessages}
 								logs={selectedAgentLogs}
-								isRunning={isAgentRunning}
+								isRunning={selectedAgentIsRunning}
 								onPromptChange={setAgentPrompt}
 								onRunPrompt={() => void runPromptOnAgent()}
 								onStopRun={() => void stopAgentRun()}

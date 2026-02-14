@@ -94,7 +94,7 @@ type RepoSidebarProperties = {
 	isCheckingRepoUpdates: boolean;
 	selectedRepoId: number | null;
 	selectedAgentId: number | null;
-	runningAgentId: number | null;
+	runningAgentIds: number[];
 	onRepoSelect: (repo: Repo) => void;
 	onAgentSelect: (repo: Repo, agentId: number) => void;
 	onCreateAgent: (repoId: number, name: string) => Promise<void>;
@@ -186,7 +186,7 @@ function DraggableRepoItem({
 	branch,
 	isActive,
 	selectedAgentId,
-	runningAgentId,
+	runningAgentIds,
 	agents,
 	isAgentsLoading,
 	agentsError,
@@ -209,7 +209,7 @@ function DraggableRepoItem({
 	branch?: string;
 	isActive: boolean;
 	selectedAgentId: number | null;
-	runningAgentId: number | null;
+	runningAgentIds: number[];
 	agents: Agent[];
 	isAgentsLoading: boolean;
 	agentsError: string | null;
@@ -592,7 +592,7 @@ function DraggableRepoItem({
 														onClick={() => onAgentSelect(repo, agent.id)}
 														title={agent.name}
 													>
-														{runningAgentId === agent.id ? (
+														{runningAgentIds.includes(agent.id) ? (
 															<LoaderCircle
 																className={cn(
 																	'size-3.5 animate-spin',
@@ -1006,7 +1006,7 @@ function GroupSection({
 	activeDropZone,
 	selectedRepoId,
 	selectedAgentId,
-	runningAgentId,
+	runningAgentIds,
 	onRepoSelect,
 	onAgentSelect,
 	onCreateAgent,
@@ -1033,7 +1033,7 @@ function GroupSection({
 	activeDropZone: DropZone | null;
 	selectedRepoId: number | null;
 	selectedAgentId: number | null;
-	runningAgentId: number | null;
+	runningAgentIds: number[];
 	onRepoSelect: (repo: Repo) => void;
 	onAgentSelect: (repo: Repo, agentId: number) => void;
 	onCreateAgent: (repoId: number, name: string) => Promise<void>;
@@ -1172,7 +1172,7 @@ function GroupSection({
 											branch={repoBranchById[repo.id]}
 											isActive={repo.id === selectedRepoId}
 											selectedAgentId={selectedAgentId}
-											runningAgentId={runningAgentId}
+											runningAgentIds={runningAgentIds}
 											agents={agentsByRepoId[repo.id] ?? []}
 											isAgentsLoading={Boolean(agentsLoadingByRepoId[repo.id])}
 											agentsError={agentsErrorByRepoId[repo.id] ?? null}
@@ -1273,7 +1273,7 @@ function UngroupedSection({
 	activeDropZone,
 	selectedRepoId,
 	selectedAgentId,
-	runningAgentId,
+	runningAgentIds,
 	onRepoSelect,
 	onAgentSelect,
 	onCreateAgent,
@@ -1297,7 +1297,7 @@ function UngroupedSection({
 	activeDropZone: DropZone | null;
 	selectedRepoId: number | null;
 	selectedAgentId: number | null;
-	runningAgentId: number | null;
+	runningAgentIds: number[];
 	onRepoSelect: (repo: Repo) => void;
 	onAgentSelect: (repo: Repo, agentId: number) => void;
 	onCreateAgent: (repoId: number, name: string) => Promise<void>;
@@ -1347,7 +1347,7 @@ function UngroupedSection({
 							branch={repoBranchById[repo.id]}
 							isActive={repo.id === selectedRepoId}
 							selectedAgentId={selectedAgentId}
-							runningAgentId={runningAgentId}
+							runningAgentIds={runningAgentIds}
 							agents={agentsByRepoId[repo.id] ?? []}
 							isAgentsLoading={Boolean(agentsLoadingByRepoId[repo.id])}
 							agentsError={agentsErrorByRepoId[repo.id] ?? null}
@@ -1385,7 +1385,7 @@ export function RepoSidebar({
 	isCheckingRepoUpdates,
 	selectedRepoId,
 	selectedAgentId,
-	runningAgentId,
+	runningAgentIds,
 	onRepoSelect,
 	onAgentSelect,
 	onCreateAgent,
@@ -1590,7 +1590,7 @@ export function RepoSidebar({
 							activeDropZone={activeDropZone}
 							selectedRepoId={selectedRepoId}
 							selectedAgentId={selectedAgentId}
-							runningAgentId={runningAgentId}
+							runningAgentIds={runningAgentIds}
 							onRepoSelect={onRepoSelect}
 							onAgentSelect={onAgentSelect}
 							onCreateAgent={onCreateAgent}
@@ -1624,7 +1624,7 @@ export function RepoSidebar({
 							activeDropZone={activeDropZone}
 							selectedRepoId={selectedRepoId}
 							selectedAgentId={selectedAgentId}
-							runningAgentId={runningAgentId}
+							runningAgentIds={runningAgentIds}
 							onRepoSelect={onRepoSelect}
 							onAgentSelect={onAgentSelect}
 							onCreateAgent={onCreateAgent}
