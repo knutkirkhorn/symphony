@@ -72,6 +72,12 @@ type AgentDonePayloadWire = AgentDonePayload & {
 	agent_id?: number;
 };
 
+type AgentStreamRecord = {
+	type?: string;
+	subtype?: string;
+	text?: string;
+};
+
 function isMacOS() {
 	if (typeof navigator === 'undefined') return false;
 	const platform = navigator.platform.toUpperCase();
@@ -154,6 +160,16 @@ function parseAgentConversationLine(
 		return {role: 'system', text: line};
 	} catch {
 		return {role: 'system', text: line};
+	}
+}
+
+function parseAgentStreamRecord(rawLine: string): AgentStreamRecord | null {
+	try {
+		const data: unknown = JSON.parse(rawLine);
+		if (!data || typeof data !== 'object') return null;
+		return data as AgentStreamRecord;
+	} catch {
+		return null;
 	}
 }
 
@@ -248,6 +264,7 @@ function App() {
 	const diffRequestIdReference = useRef(0);
 	const agentsRequestIdReference = useRef(0);
 	const branchesRequestIdReference = useRef(0);
+	const thinkingMessageIdByAgentReference = useRef<Record<number, string>>({});
 	const isRuntimeAuthorized = isTauriRuntime || hostAuthState === 'authorized';
 
 	const authenticateHostToken = useCallback(async (token: string) => {
@@ -406,6 +423,74 @@ function App() {
 		}));
 	}, []);
 
+	const appendThinkingDelta = useCallback(
+		(agentId: number, deltaText: string) => {
+			setAgentMessagesById(previous => {
+				const existingMessages = previous[agentId] ?? [];
+				const existingThinkingMessageId =
+					thinkingMessageIdByAgentReference.current[agentId];
+				const thinkingMessageId =
+					existingThinkingMessageId ??
+					`${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+				const thinkingIndex = existingMessages.findIndex(
+					entry => entry.id === thinkingMessageId,
+				);
+				const sanitizedDelta = deltaText ?? '';
+				const nextThinkingMessage: AgentConversationEntry = {
+					id: thinkingMessageId,
+					role: 'system',
+					kind: 'thinking',
+					isPending: true,
+					text: sanitizedDelta || 'Thinking...',
+				};
+				const nextMessages =
+					thinkingIndex === -1
+						? [...existingMessages, nextThinkingMessage]
+						: existingMessages.map((entry, index) =>
+								index === thinkingIndex
+									? ({
+											...entry,
+											kind: 'thinking',
+											isPending: true,
+											text:
+												sanitizedDelta.length > 0
+													? `${entry.text}${sanitizedDelta}`
+													: entry.text,
+										} as AgentConversationEntry)
+									: entry,
+							);
+				thinkingMessageIdByAgentReference.current[agentId] = thinkingMessageId;
+				return {
+					...previous,
+					[agentId]: nextMessages,
+				};
+			});
+		},
+		[],
+	);
+
+	const finalizeThinkingMessage = useCallback(
+		(agentId: number, clearId = false) => {
+			const thinkingMessageId =
+				thinkingMessageIdByAgentReference.current[agentId];
+			if (!thinkingMessageId) return;
+			setAgentMessagesById(previous => {
+				const existingMessages = previous[agentId] ?? [];
+				const nextMessages = existingMessages.map(entry =>
+					entry.id === thinkingMessageId ? {...entry, isPending: false} : entry,
+				);
+				return {
+					...previous,
+					[agentId]: nextMessages,
+				};
+			});
+			if (clearId) {
+				delete thinkingMessageIdByAgentReference.current[agentId];
+			}
+		},
+		[],
+	);
+
 	useEffect(() => {
 		if (isTauriRuntime) return;
 		const savedToken = getWebAuthToken();
@@ -477,6 +562,7 @@ function App() {
 			setRunningAgentIds([]);
 			setAgentMessagesById({});
 			setAgentLogsById({});
+			thinkingMessageIdByAgentReference.current = {};
 			return;
 		}
 
@@ -720,6 +806,16 @@ function App() {
 				const agentId = payload.agentId ?? payload.agent_id;
 				if (typeof agentId !== 'number') return;
 				appendAgentLog(agentId, payload.line);
+				const streamRecord = parseAgentStreamRecord(payload.line);
+				if (streamRecord?.type === 'thinking') {
+					if (streamRecord.subtype === 'delta') {
+						appendThinkingDelta(agentId, streamRecord.text ?? '');
+					} else if (streamRecord.subtype === 'completed') {
+						finalizeThinkingMessage(agentId);
+					}
+					return;
+				}
+				finalizeThinkingMessage(agentId);
 				const parsed = parseAgentConversationLine(payload.line);
 				if (parsed) appendAgentMessage(agentId, parsed);
 			},
@@ -732,6 +828,7 @@ function App() {
 				const agentId = payload.agentId ?? payload.agent_id;
 				if (typeof agentId !== 'number') return;
 				appendAgentLog(agentId, `stderr: ${payload.line}`);
+				finalizeThinkingMessage(agentId);
 				appendAgentMessage(agentId, {
 					role: 'error',
 					text: payload.line,
@@ -745,6 +842,7 @@ function App() {
 				const payload = event.payload as AgentDonePayloadWire;
 				const agentId = payload.agentId ?? payload.agent_id;
 				if (typeof agentId !== 'number') return;
+				finalizeThinkingMessage(agentId, true);
 				appendAgentMessage(agentId, {
 					role: payload.success ? 'system' : 'error',
 					text: payload.success
@@ -766,7 +864,13 @@ function App() {
 				unlisten();
 			});
 		};
-	}, [isRuntimeAuthorized, appendAgentLog, appendAgentMessage]);
+	}, [
+		isRuntimeAuthorized,
+		appendAgentLog,
+		appendAgentMessage,
+		appendThinkingDelta,
+		finalizeThinkingMessage,
+	]);
 
 	const createAgent = useCallback(
 		async (repoId: number, name: string) => {
@@ -807,6 +911,7 @@ function App() {
 		}
 
 		const runId = randomRunId();
+		delete thinkingMessageIdByAgentReference.current[selectedAgentId];
 		setRunningAgentIds(previous =>
 			previous.includes(selectedAgentId)
 				? previous
@@ -827,6 +932,7 @@ function App() {
 				simulateMode: isSimulatorMode,
 			});
 		} catch (error) {
+			finalizeThinkingMessage(selectedAgentId, true);
 			appendAgentMessage(selectedAgentId, {
 				role: 'error',
 				text: String(error),
@@ -842,6 +948,7 @@ function App() {
 		isSimulatorMode,
 		runningAgentIds,
 		appendAgentMessage,
+		finalizeThinkingMessage,
 	]);
 
 	const deleteAgent = useCallback(
@@ -873,6 +980,7 @@ function App() {
 					return next;
 				});
 				setRunningAgentIds(previous => previous.filter(id => id !== agent.id));
+				delete thinkingMessageIdByAgentReference.current[agent.id];
 				toast.success(`Deleted agent "${agent.name}"`);
 			} catch (error) {
 				toast.error(String(error));

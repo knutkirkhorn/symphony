@@ -52,6 +52,8 @@ export function RepoAgentsView({
 										key={message.id}
 										className={cn(
 											'rounded-md border px-3 py-2 text-sm whitespace-pre-wrap',
+											message.kind === 'thinking' &&
+												'border-sky-500/30 bg-sky-500/10',
 											message.role === 'user' && 'bg-primary/10',
 											message.role === 'assistant' && 'bg-emerald-500/10',
 											message.role === 'tool' && 'bg-amber-500/10',
@@ -60,8 +62,22 @@ export function RepoAgentsView({
 												'border-destructive/50 bg-destructive/10 text-destructive',
 										)}
 									>
-										<p className="mb-1 text-[11px] font-semibold uppercase text-muted-foreground">
-											{message.role}
+										<p className="mb-1 flex items-center text-[11px] font-semibold uppercase text-muted-foreground">
+											{message.kind === 'thinking' ? 'thinking' : message.role}
+											{message.isPending && (
+												<span
+													className="ml-2 inline-flex items-center gap-1"
+													aria-label="Awaiting response"
+												>
+													{['0ms', '150ms', '300ms'].map(delay => (
+														<span
+															key={delay}
+															className="size-1.5 rounded-full bg-muted-foreground/80 animate-bounce"
+															style={{animationDelay: delay}}
+														/>
+													))}
+												</span>
+											)}
 										</p>
 										<p>{message.text}</p>
 									</div>

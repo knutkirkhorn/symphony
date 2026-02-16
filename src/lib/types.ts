@@ -47,4 +47,6 @@ export type AgentConversationEntry = {
 	id: string;
 	role: 'user' | 'assistant' | 'tool' | 'system' | 'error';
 	text: string;
+	kind?: 'thinking';
+	isPending?: boolean;
 };
