@@ -4,6 +4,7 @@ import {Separator} from '@/components/ui/separator';
 import {Skeleton} from '@/components/ui/skeleton';
 import type {GitCommit, GitCommitFileDiff, Repo} from '@/lib/types';
 import {cn} from '@/lib/utils';
+import {PatchDiff} from '@pierre/diffs/react';
 
 type GitHistoryViewProperties = {
 	repo: Repo;
@@ -46,48 +47,6 @@ function formatCommitDate(value: string) {
 	}
 
 	return date.toLocaleString();
-}
-
-function getDiffLineClass(line: string) {
-	if (line.startsWith('diff --git')) {
-		return 'bg-muted/50 text-foreground font-medium';
-	}
-
-	if (line.startsWith('@@')) {
-		return 'bg-blue-500/10 text-blue-700 dark:text-blue-300';
-	}
-
-	if (line.startsWith('+') && !line.startsWith('+++')) {
-		return 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300';
-	}
-
-	if (line.startsWith('-') && !line.startsWith('---')) {
-		return 'bg-rose-500/10 text-rose-700 dark:text-rose-300';
-	}
-
-	if (line.startsWith('+++') || line.startsWith('---')) {
-		return 'text-muted-foreground';
-	}
-
-	return 'text-foreground/90';
-}
-
-function DiffPreview({diff}: {diff: string}) {
-	return (
-		<div className="overflow-hidden rounded-b-md">
-			{diff.split('\n').map((line, index) => (
-				<div
-					key={`${index}-${line.slice(0, 24)}`}
-					className={cn(
-						'px-3 py-0.5 font-mono text-xs leading-5 whitespace-pre-wrap wrap-break-word',
-						getDiffLineClass(line),
-					)}
-				>
-					{line}
-				</div>
-			))}
-		</div>
-	);
 }
 
 export function GitHistoryView({
@@ -191,10 +150,15 @@ export function GitHistoryView({
 										key={`${fileDiff.path}-${index}`}
 										className="rounded-md border"
 									>
-										<div className="border-b bg-muted/40 px-3 py-2 text-sm font-medium">
-											{fileDiff.path}
+										<div className="overflow-hidden rounded-md">
+											<PatchDiff
+												patch={fileDiff.diff}
+												options={{
+													diffStyle: 'split',
+													theme: 'github-light',
+												}}
+											/>
 										</div>
-										<DiffPreview diff={fileDiff.diff} />
 									</div>
 								))
 							)
