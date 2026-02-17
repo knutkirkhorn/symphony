@@ -357,6 +357,12 @@ pub struct GitCommitFileDiff {
 }
 
 #[derive(Debug, Serialize, Clone)]
+pub struct GitWorkingTreeFileChange {
+    pub path: String,
+    pub status: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
 pub struct RepoSyncStatus {
     pub has_remote: bool,
     pub has_upstream: bool,
@@ -625,6 +631,123 @@ pub fn get_commit_changes(path: String, commit: String) -> Result<Vec<GitCommitF
 }
 
 #[tauri::command]
+pub fn list_working_tree_changes(path: String) -> Result<Vec<GitWorkingTreeFileChange>, String> {
+    let output = run_git_command(
+        &path,
+        &[
+            "status".to_string(),
+            "--porcelain".to_string(),
+            "--untracked-files=all".to_string(),
+        ],
+    )?;
+    Ok(parse_working_tree_changes(&output))
+}
+
+#[tauri::command]
+pub fn get_working_tree_file_diff(path: String, file_path: String) -> Result<String, String> {
+    let trimmed_file_path = file_path.trim();
+    if trimmed_file_path.is_empty() {
+        return Err("File path is required".to_string());
+    }
+
+    let head_diff = run_git_command(
+        &path,
+        &[
+            "diff".to_string(),
+            "--no-color".to_string(),
+            "HEAD".to_string(),
+            "--".to_string(),
+            trimmed_file_path.to_string(),
+        ],
+    )?;
+    if !head_diff.trim().is_empty() {
+        return Ok(head_diff);
+    }
+
+    let absolute_path = Path::new(&path).join(trimmed_file_path);
+    if !absolute_path.exists() {
+        return Ok(head_diff);
+    }
+
+    let output = Command::new("git")
+        .args(["diff", "--no-color", "--no-index", "--", "/dev/null"])
+        .arg(absolute_path.as_os_str())
+        .current_dir(&path)
+        .output()
+        .map_err(|e| format!("Failed to run git: {}", e))?;
+
+    // git diff --no-index returns status 1 when differences are found, which is expected.
+    if output.status.success() || output.status.code() == Some(1) {
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        if !stdout.trim().is_empty() {
+            return Ok(stdout);
+        }
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    if !stderr.is_empty() {
+        return Err(stderr);
+    }
+
+    Ok(head_diff)
+}
+
+#[tauri::command]
+pub fn commit_working_tree(
+    path: String,
+    message: String,
+    files: Option<Vec<String>>,
+) -> Result<String, String> {
+    let trimmed_message = message.trim();
+    if trimmed_message.is_empty() {
+        return Err("Commit message is required".to_string());
+    }
+
+    let selected_files = files
+        .unwrap_or_default()
+        .into_iter()
+        .map(|file| file.trim().to_string())
+        .filter(|file| !file.is_empty())
+        .collect::<Vec<_>>();
+
+    if selected_files.is_empty() {
+        return Err("Select at least one file to commit".to_string());
+    }
+
+    let status_output = run_git_command(
+        &path,
+        &[
+            "status".to_string(),
+            "--porcelain".to_string(),
+            "--untracked-files=all".to_string(),
+        ],
+    )?;
+    if status_output.trim().is_empty() {
+        return Err("No changes to commit".to_string());
+    }
+
+    let mut add_args = vec!["add".to_string(), "--".to_string()];
+    add_args.extend(selected_files.iter().cloned());
+    run_git_command(&path, &add_args)?;
+
+    let mut commit_args = vec![
+        "commit".to_string(),
+        "-m".to_string(),
+        trimmed_message.to_string(),
+        "--".to_string(),
+    ];
+    commit_args.extend(selected_files);
+    let commit_output = run_git_command(&path, &commit_args)?;
+
+    let trimmed_output = commit_output.trim();
+    if trimmed_output.is_empty() {
+        Ok("Commit completed".to_string())
+    } else {
+        Ok(trimmed_output.to_string())
+    }
+}
+
+#[tauri::command]
 pub fn get_repo_sync_status(path: String, fetch: Option<bool>) -> Result<RepoSyncStatus, String> {
     let mut status = RepoSyncStatus {
         has_remote: false,
@@ -847,6 +970,64 @@ fn parse_commit_file_diffs(raw_output: &str) -> Vec<GitCommitFileDiff> {
     }
 
     diffs
+}
+
+fn parse_working_tree_changes(raw_output: &str) -> Vec<GitWorkingTreeFileChange> {
+    let mut changes: Vec<GitWorkingTreeFileChange> = Vec::new();
+
+    for line in raw_output.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+
+        let Some(status_code_raw) = line.get(0..2) else {
+            continue;
+        };
+        if status_code_raw == "!!" {
+            continue;
+        }
+
+        let Some(path_slice) = line.get(3..) else {
+            continue;
+        };
+        let mut parsed_path = path_slice.trim().to_string();
+        if let Some((_, next_path)) = parsed_path.rsplit_once(" -> ") {
+            parsed_path = next_path.to_string();
+        }
+        parsed_path = parsed_path.trim_matches('"').to_string();
+        if parsed_path.is_empty() {
+            continue;
+        }
+
+        changes.push(GitWorkingTreeFileChange {
+            path: parsed_path,
+            status: map_working_tree_status(status_code_raw),
+        });
+    }
+
+    changes.sort_by(|left, right| left.path.cmp(&right.path));
+    changes
+}
+
+fn map_working_tree_status(status_code: &str) -> String {
+    if status_code == "??" {
+        return "untracked".to_string();
+    }
+
+    let mut chars = status_code.chars();
+    let staged = chars.next().unwrap_or(' ');
+    let unstaged = chars.next().unwrap_or(' ');
+    let marker = if unstaged != ' ' { unstaged } else { staged };
+
+    match marker {
+        'A' => "added".to_string(),
+        'M' => "modified".to_string(),
+        'D' => "deleted".to_string(),
+        'R' => "renamed".to_string(),
+        'C' => "copied".to_string(),
+        'U' => "conflict".to_string(),
+        _ => "changed".to_string(),
+    }
 }
 
 fn parse_path_from_diff_header(header_line: &str) -> String {

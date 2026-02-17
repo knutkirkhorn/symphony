@@ -1,4 +1,5 @@
 /* eslint-disable unicorn/no-null */
+import {ChangedFilesView} from '@/components/changed-files-view';
 import {EmptyState} from '@/components/empty-state';
 import {GitHistoryView} from '@/components/git-history-view';
 import {RepoAgentsView} from '@/components/repo-agents-view';
@@ -46,7 +47,7 @@ type RemoteInfo = {
 	url: string;
 };
 
-type RepoViewTab = 'agent' | 'commit-log';
+type RepoViewTab = 'agent' | 'changed-files' | 'commit-log';
 type AppView = 'repo' | 'settings';
 type HostAuthState = 'checking' | 'unauthorized' | 'authorized';
 
@@ -1207,6 +1208,19 @@ function App() {
 								</Button>
 								<Button
 									variant={
+										activeRepoViewTab === 'changed-files'
+											? 'secondary'
+											: 'ghost'
+									}
+									size="sm"
+									onClick={() => {
+										setActiveRepoViewTab('changed-files');
+									}}
+								>
+									Changed files
+								</Button>
+								<Button
+									variant={
 										activeRepoViewTab === 'commit-log' ? 'secondary' : 'ghost'
 									}
 									size="sm"
@@ -1229,6 +1243,17 @@ function App() {
 								onPromptChange={setAgentPrompt}
 								onRunPrompt={() => void runPromptOnAgent()}
 								onStopRun={() => void stopAgentRun()}
+							/>
+						) : activeRepoViewTab === 'changed-files' ? (
+							<ChangedFilesView
+								repo={selectedRepo}
+								isActive={activeRepoViewTab === 'changed-files'}
+								onCommitted={() => {
+									void checkRepoUpdates(true);
+									setSelectedRepo(previous =>
+										previous ? {...previous, path: previous.path} : previous,
+									);
+								}}
 							/>
 						) : (
 							<GitHistoryView

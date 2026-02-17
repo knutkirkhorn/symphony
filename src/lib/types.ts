@@ -36,6 +36,11 @@ export type GitCommitFileDiff = {
 	diff: string;
 };
 
+export type GitWorkingTreeFileChange = {
+	path: string;
+	status: string;
+};
+
 export type Agent = {
 	id: number;
 	repo_id: number;

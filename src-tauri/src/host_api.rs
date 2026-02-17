@@ -1,10 +1,11 @@
 use crate::commands::{
-    add_repo, clone_repo, create_agent, create_group, create_local_branch, delete_agent,
-    delete_group, delete_local_branch, get_commit_changes, get_current_branch, get_remote_url,
-    get_repo_sync_status, get_repo_working_tree_status, list_agents, list_git_history, list_groups,
-    list_local_branches, list_repos, move_repo_to_group, open_in_cursor, open_in_file_manager,
-    pull_repo, remove_repo, rename_agent, rename_group, run_repo_agent, stop_repo_agent,
-    switch_branch, AgentRuntimeState,
+    add_repo, clone_repo, commit_working_tree, create_agent, create_group, create_local_branch,
+    delete_agent, delete_group, delete_local_branch, get_commit_changes, get_current_branch,
+    get_remote_url, get_repo_sync_status, get_repo_working_tree_status, get_working_tree_file_diff,
+    list_agents, list_git_history, list_groups, list_local_branches, list_repos,
+    list_working_tree_changes, move_repo_to_group, open_in_cursor, open_in_file_manager, pull_repo,
+    remove_repo, rename_agent, rename_group, run_repo_agent, stop_repo_agent, switch_branch,
+    AgentRuntimeState,
 };
 use crate::db::Database;
 use axum::extract::{Query, State as AxumState};
@@ -157,6 +158,21 @@ struct ListGitHistoryArgs {
 struct CommitChangesArgs {
     path: String,
     commit: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkingTreeFileDiffArgs {
+    path: String,
+    file_path: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CommitWorkingTreeArgs {
+    path: String,
+    message: String,
+    files: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -375,6 +391,27 @@ fn invoke_dispatch(
             let parsed: CommitChangesArgs = deserialize_args(args)?;
             Ok(
                 serde_json::to_value(get_commit_changes(parsed.path, parsed.commit)?)
+                    .map_err(|e| e.to_string())?,
+            )
+        }
+        "list_working_tree_changes" => {
+            let parsed: PathArgs = deserialize_args(args)?;
+            Ok(
+                serde_json::to_value(list_working_tree_changes(parsed.path)?)
+                    .map_err(|e| e.to_string())?,
+            )
+        }
+        "get_working_tree_file_diff" => {
+            let parsed: WorkingTreeFileDiffArgs = deserialize_args(args)?;
+            Ok(
+                serde_json::to_value(get_working_tree_file_diff(parsed.path, parsed.file_path)?)
+                    .map_err(|e| e.to_string())?,
+            )
+        }
+        "commit_working_tree" => {
+            let parsed: CommitWorkingTreeArgs = deserialize_args(args)?;
+            Ok(
+                serde_json::to_value(commit_working_tree(parsed.path, parsed.message, parsed.files)?)
                     .map_err(|e| e.to_string())?,
             )
         }
