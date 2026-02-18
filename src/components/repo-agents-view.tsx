@@ -6,6 +6,7 @@ import {cn} from '@/lib/utils';
 import {
 	Bot,
 	Check,
+	ChevronDown,
 	Copy,
 	ExternalLink,
 	LoaderCircle,
@@ -16,7 +17,9 @@ import {
 	UserRound,
 	Wrench,
 } from 'lucide-react';
-import {useState, type ReactNode} from 'react';
+import {useCallback, useEffect, useRef, useState, type ReactNode} from 'react';
+
+const SCROLL_BOTTOM_THRESHOLD = 60;
 
 type RepoAgentsViewProperties = {
 	selectedAgent: Agent | null;
@@ -224,6 +227,42 @@ export function RepoAgentsView({
 	onStopRun,
 }: RepoAgentsViewProperties) {
 	const messageCount = messages.length;
+	const messagesScrollReference = useRef<HTMLDivElement>(null);
+	const [isAtBottom, setIsAtBottom] = useState(true);
+
+	const checkAtBottom = useCallback(() => {
+		const element = messagesScrollReference.current;
+		if (!element) return;
+		const nearBottom =
+			element.scrollHeight - element.scrollTop - element.clientHeight <
+			SCROLL_BOTTOM_THRESHOLD;
+		setIsAtBottom(nearBottom);
+	}, []);
+
+	const scrollToBottom = useCallback(() => {
+		const element = messagesScrollReference.current;
+		if (element) {
+			element.scrollTo({top: element.scrollHeight, behavior: 'smooth'});
+			setIsAtBottom(true);
+		}
+	}, []);
+
+	useEffect(() => {
+		if (isAtBottom && messages.length > 0) {
+			const element = messagesScrollReference.current;
+			if (element) {
+				element.scrollTo({top: element.scrollHeight, behavior: 'auto'});
+			}
+		}
+	}, [messages.length, isAtBottom]);
+
+	useEffect(() => {
+		const element = messagesScrollReference.current;
+		if (!element) return () => {};
+		const resizeObserver = new ResizeObserver(checkAtBottom);
+		resizeObserver.observe(element);
+		return () => resizeObserver.disconnect();
+	}, [checkAtBottom]);
 
 	const getMessageVisuals = (message: AgentConversationEntry) => {
 		if (message.kind === 'thinking') {
@@ -318,8 +357,12 @@ export function RepoAgentsView({
 					</div>
 				</div>
 				<Separator className="opacity-60" />
-				<div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden pb-1">
-					<ScrollArea className="h-0 min-h-0 flex-1 px-1 md:px-4">
+				<div className="relative flex min-h-0 flex-1 flex-col gap-2 overflow-hidden pb-1">
+					<div
+						ref={messagesScrollReference}
+						className="h-0 min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-1 md:px-4"
+						onScroll={checkAtBottom}
+					>
 						<div className="space-y-3 py-2">
 							{messages.length === 0 ? (
 								<div className="flex h-full min-h-48 items-center justify-center">
@@ -405,9 +448,22 @@ export function RepoAgentsView({
 								))
 							)}
 						</div>
-					</ScrollArea>
+					</div>
 
-					<div className="shrink-0 border-t border-border/70 pt-2 px-1 md:px-4">
+					<div className="relative shrink-0 border-t border-border/70 pt-2 px-1 md:px-4">
+						{!isAtBottom && messages.length > 0 && (
+							<div className="absolute bottom-full left-1/2 z-10 mb-2 -translate-x-1/2">
+								<Button
+									variant="secondary"
+									size="icon"
+									onClick={scrollToBottom}
+									className="h-9 w-9 rounded-full shadow-md border border-border/70"
+									aria-label="Scroll to newest messages"
+								>
+									<ChevronDown className="size-4" />
+								</Button>
+							</div>
+						)}
 						<div className="space-y-2">
 							<textarea
 								placeholder="Enter prompt for selected agent"
