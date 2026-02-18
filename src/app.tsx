@@ -1228,7 +1228,7 @@ function App() {
 										setActiveRepoViewTab('commit-log');
 									}}
 								>
-									Commit Log
+									Commits
 								</Button>
 							</div>
 						</div>
