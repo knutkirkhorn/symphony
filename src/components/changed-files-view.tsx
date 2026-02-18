@@ -44,7 +44,8 @@ export function ChangedFilesView({
 	const fileDiffRequestIdReference = useRef(0);
 	const selectAllCheckboxReference = useRef<HTMLInputElement>(null);
 	const allFilesSelected =
-		changedFiles.length > 0 && selectedFilesForCommit.size === changedFiles.length;
+		changedFiles.length > 0 &&
+		selectedFilesForCommit.size === changedFiles.length;
 	const someFilesSelected =
 		selectedFilesForCommit.size > 0 &&
 		selectedFilesForCommit.size < changedFiles.length;
@@ -195,9 +196,9 @@ export function ChangedFilesView({
 
 	return (
 		<div className="flex h-full min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-x-hidden p-4 lg:flex-row">
-			<div className="flex w-full shrink-0 flex-col rounded-md border lg:w-[22rem] lg:min-w-[18rem]">
+			<div className="flex w-full shrink-0 flex-col rounded-md border lg:w-88 lg:min-w-[18rem]">
 				<div className="p-3">
-					<p className="font-medium">Changed files</p>
+					<p className="font-medium">Changes</p>
 					<p className="text-xs text-muted-foreground truncate">{repo.path}</p>
 					<div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
 						<input
@@ -225,7 +226,7 @@ export function ChangedFilesView({
 							</p>
 						) : changedFiles.length === 0 ? (
 							<p className="p-2 text-sm text-muted-foreground">
-								No changed files in this repository.
+								No changes in this repository.
 							</p>
 						) : (
 							changedFiles.map(file => (

@@ -1217,7 +1217,7 @@ function App() {
 										setActiveRepoViewTab('changed-files');
 									}}
 								>
-									Changed files
+									Changes
 								</Button>
 								<Button
 									variant={
