@@ -1514,6 +1514,7 @@ export function RepoSidebar({
 	const [activeDropZone, setActiveDropZone] = useState<DropZone | null>(null);
 	const [isPointerDragging, setIsPointerDragging] = useState(false);
 	const [isLanUrlDialogOpen, setIsLanUrlDialogOpen] = useState(false);
+	const [lanUrlCopied, setLanUrlCopied] = useState(false);
 
 	const ungroupedRepos = repos.filter(r => r.group_id === null);
 
@@ -1788,7 +1789,13 @@ export function RepoSidebar({
 			/>
 
 			{/* LAN server URL dialog */}
-			<Dialog open={isLanUrlDialogOpen} onOpenChange={setIsLanUrlDialogOpen}>
+			<Dialog
+				open={isLanUrlDialogOpen}
+				onOpenChange={open => {
+					setIsLanUrlDialogOpen(open);
+					if (!open) setLanUrlCopied(false);
+				}}
+			>
 				<DialogContent>
 					<DialogHeader>
 						<DialogTitle>Server URL</DialogTitle>
@@ -1811,13 +1818,23 @@ export function RepoSidebar({
 							onClick={async () => {
 								if (lanListenUrl) {
 									await navigator.clipboard.writeText(lanListenUrl);
-									toast.success('Copied to clipboard');
+									setLanUrlCopied(true);
+									setTimeout(() => setLanUrlCopied(false), 2000);
 								}
 							}}
 							disabled={!lanListenUrl}
 						>
-							<Copy className="size-4" />
-							Copy
+							{lanUrlCopied ? (
+								<>
+									<Check className="size-4" />
+									Copied
+								</>
+							) : (
+								<>
+									<Copy className="size-4" />
+									Copy
+								</>
+							)}
 						</Button>
 						<Button
 							type="button"
