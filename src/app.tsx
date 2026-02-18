@@ -1300,7 +1300,7 @@ function App() {
 	}
 
 	return (
-		<SidebarProvider>
+		<SidebarProvider className="h-svh overflow-hidden">
 			<RepoSidebar
 				repos={repos}
 				groups={groups}
@@ -1341,7 +1341,7 @@ function App() {
 				isHostLanAccessLoading={isHostLanAccessLoading}
 				onHostLanAccessChange={enabled => void updateHostLanAccess(enabled)}
 			/>
-			<SidebarInset>
+			<SidebarInset className="h-svh min-h-0 overflow-hidden">
 				<div className="sticky top-0 z-20 flex items-center gap-2 border-b bg-background/95 px-3 py-2 backdrop-blur md:hidden">
 					<SidebarTrigger className="size-8" />
 					<p className="truncate text-sm font-medium">
@@ -1366,8 +1366,8 @@ function App() {
 				) : repos.length === 0 ? (
 					<EmptyState onReposChange={loadRepos} />
 				) : selectedRepo ? (
-					<div className="flex min-h-0 flex-1 flex-col">
-						<div className="flex items-center justify-between border-b px-4 py-3">
+					<div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+						<div className="shrink-0 flex items-center justify-between border-b px-4 py-3">
 							<div className="min-w-0">
 								<h2 className="truncate text-lg font-semibold">
 									{selectedRepo.name}
@@ -1416,7 +1416,7 @@ function App() {
 								)}
 							</div>
 						</div>
-						<div className="border-b px-4">
+						<div className="shrink-0 border-b px-4">
 							<div className="flex items-center gap-2 py-2">
 								<Button
 									variant={
@@ -1455,44 +1455,46 @@ function App() {
 								</Button>
 							</div>
 						</div>
-						{activeRepoViewTab === 'agent' ? (
-							<RepoAgentsView
-								selectedAgent={selectedAgent}
-								model={selectedAgentModel}
-								prompt={agentPrompt}
-								messages={selectedAgentMessages}
-								logs={selectedAgentLogs}
-								isRunning={selectedAgentIsRunning}
-								showRawLogs={showRawLogs}
-								onOpenEditedFile={path => void openAgentMessageFile(path)}
-								onPromptChange={setAgentPrompt}
-								onRunPrompt={() => void runPromptOnAgent()}
-								onStopRun={() => void stopAgentRun()}
-							/>
-						) : activeRepoViewTab === 'changed-files' ? (
-							<ChangedFilesView
-								repo={selectedRepo}
-								isActive={activeRepoViewTab === 'changed-files'}
-								onCommitted={() => {
-									void checkRepoUpdates(true);
-									setSelectedRepo(previous =>
-										previous ? {...previous, path: previous.path} : previous,
-									);
-								}}
-							/>
-						) : (
-							<GitHistoryView
-								repo={selectedRepo}
-								commits={historyCommits}
-								selectedCommitHash={selectedCommitHash}
-								onSelectCommit={setSelectedCommitHash}
-								isHistoryLoading={isHistoryLoading}
-								historyError={historyError}
-								fileDiffs={selectedCommitDiffs}
-								isDiffLoading={isDiffLoading}
-								diffError={diffError}
-							/>
-						)}
+						<div className="min-h-0 flex-1 overflow-hidden">
+							{activeRepoViewTab === 'agent' ? (
+								<RepoAgentsView
+									selectedAgent={selectedAgent}
+									model={selectedAgentModel}
+									prompt={agentPrompt}
+									messages={selectedAgentMessages}
+									logs={selectedAgentLogs}
+									isRunning={selectedAgentIsRunning}
+									showRawLogs={showRawLogs}
+									onOpenEditedFile={path => void openAgentMessageFile(path)}
+									onPromptChange={setAgentPrompt}
+									onRunPrompt={() => void runPromptOnAgent()}
+									onStopRun={() => void stopAgentRun()}
+								/>
+							) : activeRepoViewTab === 'changed-files' ? (
+								<ChangedFilesView
+									repo={selectedRepo}
+									isActive={activeRepoViewTab === 'changed-files'}
+									onCommitted={() => {
+										void checkRepoUpdates(true);
+										setSelectedRepo(previous =>
+											previous ? {...previous, path: previous.path} : previous,
+										);
+									}}
+								/>
+							) : (
+								<GitHistoryView
+									repo={selectedRepo}
+									commits={historyCommits}
+									selectedCommitHash={selectedCommitHash}
+									onSelectCommit={setSelectedCommitHash}
+									isHistoryLoading={isHistoryLoading}
+									historyError={historyError}
+									fileDiffs={selectedCommitDiffs}
+									isDiffLoading={isDiffLoading}
+									diffError={diffError}
+								/>
+							)}
+						</div>
 					</div>
 				) : (
 					<div className="flex flex-1 items-center justify-center">
