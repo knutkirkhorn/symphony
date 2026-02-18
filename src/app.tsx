@@ -247,13 +247,22 @@ function parseEditToolCallLifecycle(rawLine: string) {
 }
 
 function normalizeEditedFilePath(rawPath: string) {
-	const trimmedPath = rawPath.trim().replaceAll(/^['"`]|['"`]$/g, '');
+	let trimmedPath = rawPath.trim();
+	const firstCharacter = trimmedPath[0] ?? '';
+	const lastCharacter = trimmedPath.slice(-1);
+	const hasMatchingWrappers =
+		(firstCharacter === "'" && lastCharacter === "'") ||
+		(firstCharacter === '"' && lastCharacter === '"') ||
+		(firstCharacter === '`' && lastCharacter === '`');
+	if (hasMatchingWrappers && trimmedPath.length >= 2) {
+		trimmedPath = trimmedPath.slice(1, -1);
+	}
 	if (!trimmedPath) return '';
 	const hasWindowsDrivePrefix = /^[a-zA-Z]:[\\/]/.test(trimmedPath);
 	const hasWindowsUncPrefix = trimmedPath.startsWith('\\\\');
 	const usesWindowsStyle = hasWindowsDrivePrefix || hasWindowsUncPrefix;
-	if (usesWindowsStyle) return trimmedPath.replaceAll('/', '\\');
-	return trimmedPath.replaceAll('\\', '/');
+	if (usesWindowsStyle) return trimmedPath.split('/').join('\\');
+	return trimmedPath.split('\\').join('/');
 }
 
 async function openRemoteInBrowser(remoteInfo: RemoteInfo) {
@@ -1041,12 +1050,12 @@ function App() {
 				const agentId = payload.agentId ?? payload.agent_id;
 				if (typeof agentId !== 'number') return;
 				finalizeThinkingMessage(agentId, true);
-				appendAgentMessage(agentId, {
-					role: payload.success ? 'system' : 'error',
-					text: payload.success
-						? 'Agent run completed.'
-						: 'Agent run stopped or failed.',
-				});
+				if (!payload.success) {
+					appendAgentMessage(agentId, {
+						role: 'error',
+						text: 'Agent run stopped or failed.',
+					});
+				}
 				delete pendingEditedPathByAgentReference.current[agentId];
 				setRunningAgentIds(previous => previous.filter(id => id !== agentId));
 			},
