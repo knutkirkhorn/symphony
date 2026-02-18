@@ -119,5 +119,18 @@
 	}
 	body {
 		@apply bg-background text-foreground;
+		min-height: 100vh;
+		background-image:
+			radial-gradient(
+				1100px 420px at 100% -10%,
+				oklch(from var(--primary) l c h / 12%),
+				transparent 58%
+			),
+			radial-gradient(
+				900px 340px at 0% 110%,
+				oklch(from var(--muted-foreground) l c h / 10%),
+				transparent 62%
+			);
+		background-attachment: fixed;
 	}
 }

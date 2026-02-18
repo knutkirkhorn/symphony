@@ -3,6 +3,16 @@ import {ScrollArea} from '@/components/ui/scroll-area';
 import {Separator} from '@/components/ui/separator';
 import type {Agent, AgentConversationEntry} from '@/lib/types';
 import {cn} from '@/lib/utils';
+import {
+	Bot,
+	LoaderCircle,
+	MessageSquareText,
+	Play,
+	Square,
+	TerminalSquare,
+	UserRound,
+	Wrench,
+} from 'lucide-react';
 
 type RepoAgentsViewProperties = {
 	selectedAgent: Agent | null;
@@ -27,69 +37,167 @@ export function RepoAgentsView({
 	onRunPrompt,
 	onStopRun,
 }: RepoAgentsViewProperties) {
+	const messageCount = messages.length;
+
+	const getMessageVisuals = (message: AgentConversationEntry) => {
+		if (message.kind === 'thinking') {
+			if (!message.isPending) {
+				return {
+					icon: MessageSquareText,
+					label: 'Thought',
+					containerClassName:
+						'border-sky-500/30 bg-linear-to-b from-sky-500/12 to-sky-500/5',
+				};
+			}
+
+			return {
+				icon: LoaderCircle,
+				label: 'Thinking',
+				containerClassName:
+					'border-sky-500/30 bg-linear-to-b from-sky-500/12 to-sky-500/5',
+			};
+		}
+
+		switch (message.role) {
+			case 'user': {
+				return {
+					icon: UserRound,
+					label: 'You',
+					containerClassName:
+						'border-primary/30 bg-linear-to-b from-primary/15 to-primary/8',
+				};
+			}
+			case 'assistant': {
+				return {
+					icon: Bot,
+					label: 'Assistant',
+					containerClassName:
+						'border-emerald-500/30 bg-linear-to-b from-emerald-500/15 to-emerald-500/6',
+				};
+			}
+			case 'tool': {
+				return {
+					icon: Wrench,
+					label: 'Tool',
+					containerClassName:
+						'border-amber-500/35 bg-linear-to-b from-amber-500/18 to-amber-500/8',
+				};
+			}
+			case 'error': {
+				return {
+					icon: TerminalSquare,
+					label: 'Error',
+					containerClassName:
+						'border-destructive/45 bg-linear-to-b from-destructive/20 to-destructive/8 text-destructive',
+				};
+			}
+			default: {
+				return {
+					icon: MessageSquareText,
+					label: 'System',
+					containerClassName: 'border-border/80 bg-muted/50',
+				};
+			}
+		}
+	};
+
 	return (
-		<div className="flex h-full min-h-0 min-w-0 flex-1 flex-col gap-4 p-4">
-			<div className="flex min-h-0 min-w-0 flex-1 flex-col rounded-md border">
-				<div className="p-3">
-					<p className="font-medium">
-						{selectedAgent ? `Chat - ${selectedAgent.name}` : 'Select an agent'}
-					</p>
-					<p className="text-xs text-muted-foreground">
-						Agents live under each repository in the left sidebar.
-					</p>
+		<div className="relative flex h-full max-h-full min-h-0 min-w-0 flex-1 flex-col gap-2 overflow-hidden">
+			<div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(1000px_400px_at_100%_0%,hsl(var(--primary)/0.11),transparent_55%),radial-gradient(800px_300px_at_0%_100%,hsl(var(--muted-foreground)/0.08),transparent_60%)]" />
+			<div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+				<div className="flex shrink-0 flex-wrap items-start justify-between gap-2 px-1 py-2 md:px-4">
+					<div className="min-w-0">
+						<p className="truncate text-base font-semibold tracking-tight">
+							{selectedAgent ? selectedAgent.name : 'Select an agent'}
+						</p>
+						<p className="mt-0.5 text-xs text-muted-foreground">
+							{selectedAgent
+								? `${messageCount} ${messageCount === 1 ? 'message' : 'messages'} in this chat`
+								: 'Choose an agent from the sidebar to start chatting'}
+						</p>
+					</div>
+					<div className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/70 px-3 py-1.5 text-xs font-medium text-muted-foreground">
+						<span
+							className={cn(
+								'size-2 rounded-full bg-emerald-500',
+								isRunning && 'animate-pulse',
+							)}
+						/>
+						{isRunning ? 'Agent running' : 'Ready'}
+					</div>
 				</div>
-				<Separator />
-				<div className="flex min-h-0 flex-1 flex-col gap-3 p-3">
-					<ScrollArea className="min-h-0 flex-1 rounded-md border">
-						<div className="space-y-2 p-3">
+				<Separator className="opacity-60" />
+				<div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden pb-1">
+					<ScrollArea className="min-h-0 flex-1 px-1 md:px-4">
+						<div className="space-y-3 py-2">
 							{messages.length === 0 ? (
-								<p className="text-sm text-muted-foreground">
-									No messages yet. Send a prompt to begin.
-								</p>
+								<div className="flex h-full min-h-48 items-center justify-center">
+									<div className="max-w-sm rounded-xl border border-dashed border-border/70 bg-muted/25 px-5 py-6 text-center">
+										<MessageSquareText className="mx-auto mb-2 size-5 text-muted-foreground" />
+										<p className="text-sm font-medium">No messages yet</p>
+										<p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+											Send a prompt below to start a clean chat thread with this
+											agent.
+										</p>
+									</div>
+								</div>
 							) : (
 								messages.map(message => (
 									<div
 										key={message.id}
 										className={cn(
-											'rounded-md border px-3 py-2 text-sm whitespace-pre-wrap',
-											message.kind === 'thinking' &&
-												'border-sky-500/30 bg-sky-500/10',
-											message.role === 'user' && 'bg-primary/10',
-											message.role === 'assistant' && 'bg-emerald-500/10',
-											message.role === 'tool' && 'bg-amber-500/10',
-											message.role === 'system' && 'bg-muted',
-											message.role === 'error' &&
-												'border-destructive/50 bg-destructive/10 text-destructive',
+											'flex w-full',
+											message.role === 'user' && message.kind !== 'thinking'
+												? 'justify-end'
+												: 'justify-start',
 										)}
 									>
-										<p className="mb-1 flex items-center text-[11px] font-semibold uppercase text-muted-foreground">
-											{message.kind === 'thinking' ? 'thinking' : message.role}
-											{message.isPending && (
-												<span
-													className="ml-2 inline-flex items-center gap-1"
-													aria-label="Awaiting response"
-												>
-													{['0ms', '150ms', '300ms'].map(delay => (
-														<span
-															key={delay}
-															className="size-1.5 rounded-full bg-muted-foreground/80 animate-bounce"
-															style={{animationDelay: delay}}
-														/>
-													))}
-												</span>
+										<div
+											className={cn(
+												'max-w-[92%] rounded-xl border px-3 py-2.5 text-sm shadow-xs md:max-w-[80%]',
+												getMessageVisuals(message).containerClassName,
 											)}
-										</p>
-										<p>{message.text}</p>
+										>
+											<p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
+												{(() => {
+													const visuals = getMessageVisuals(message);
+													const Icon = visuals.icon;
+													return (
+														<>
+															<Icon className="size-3.5" />
+															<span>{visuals.label}</span>
+														</>
+													);
+												})()}
+												{message.isPending && (
+													<span
+														className="ml-1 inline-flex items-center gap-1"
+														aria-label="Awaiting response"
+													>
+														{['0ms', '120ms', '240ms'].map(delay => (
+															<span
+																key={delay}
+																className="size-1.5 rounded-full bg-muted-foreground/80 animate-bounce"
+																style={{animationDelay: delay}}
+															/>
+														))}
+													</span>
+												)}
+											</p>
+											<p className="leading-relaxed whitespace-pre-wrap">
+												{message.text}
+											</p>
+										</div>
 									</div>
 								))
 							)}
 						</div>
 					</ScrollArea>
 
-					<div className="rounded-md border">
-						<div className="space-y-2 p-3">
+					<div className="shrink-0 border-t border-border/70 pt-2 px-1 md:px-4">
+						<div className="space-y-2">
 							<textarea
-								placeholder="Enter prompt for selected agent... (Shift+Enter for new line)"
+								placeholder="Enter prompt for selected agent"
 								value={prompt}
 								onChange={event => {
 									onPromptChange(event.target.value);
@@ -103,39 +211,48 @@ export function RepoAgentsView({
 								disabled={!selectedAgent || isRunning}
 								rows={3}
 								className={cn(
-									'flex w-full min-w-0 resize-y rounded-md border border-input bg-transparent px-3 py-2 text-base shadow-xs transition-[color,box-shadow] outline-none placeholder:text-muted-foreground',
+									'flex w-full min-w-0 resize-none rounded-lg border border-input/80 bg-background/80 px-3 py-2.5 text-base transition-[color,box-shadow] outline-none placeholder:text-muted-foreground',
 									'focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]',
 									'disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50',
-									'min-h-9 max-h-48 overflow-y-auto md:text-sm',
+									'min-h-10 max-h-48 overflow-y-auto md:text-sm',
 								)}
 							/>
-							<div className="flex items-center justify-end gap-2">
-								<Button
-									variant="outline"
-									onClick={onStopRun}
-									disabled={!isRunning}
-								>
-									Stop
-								</Button>
-								<Button
-									onClick={onRunPrompt}
-									disabled={!selectedAgent || isRunning || !prompt.trim()}
-								>
-									{isRunning ? 'Running...' : 'Run prompt'}
-								</Button>
+							<div className="flex flex-wrap items-center justify-between gap-2">
+								<p className="text-[11px] text-muted-foreground">
+									Enter to run, Shift+Enter for a new line.
+								</p>
+								<div className="flex items-center gap-2">
+									<Button
+										variant="outline"
+										onClick={onStopRun}
+										disabled={!isRunning}
+										className="gap-1.5"
+									>
+										<Square className="size-3.5" />
+										Stop
+									</Button>
+									<Button
+										onClick={onRunPrompt}
+										disabled={!selectedAgent || isRunning || !prompt.trim()}
+										className="gap-1.5"
+									>
+										<Play className="size-3.5" />
+										{isRunning ? 'Running...' : 'Run prompt'}
+									</Button>
+								</div>
 							</div>
 						</div>
 					</div>
 
 					{showRawLogs && (
-						<div className="min-h-0 rounded-md border">
-							<div className="border-b px-3 py-2">
-								<p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+						<div className="h-28 shrink-0 overflow-hidden border-t border-border/70 pt-2 md:h-32 px-1 md:px-4">
+							<div className="px-1 py-1.5">
+								<p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
 									Raw logs
 								</p>
 							</div>
-							<ScrollArea className="h-36">
-								<div className="space-y-1 p-3 font-mono text-xs">
+							<ScrollArea className="h-full">
+								<div className="space-y-1 rounded-md bg-muted/20 p-2.5 font-mono text-xs leading-relaxed">
 									{logs.length === 0 ? (
 										<p className="text-muted-foreground">No logs yet.</p>
 									) : (
