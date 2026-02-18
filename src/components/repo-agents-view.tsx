@@ -16,6 +16,7 @@ import {
 
 type RepoAgentsViewProperties = {
 	selectedAgent: Agent | null;
+	model: string | null;
 	prompt: string;
 	messages: AgentConversationEntry[];
 	logs: string[];
@@ -28,6 +29,7 @@ type RepoAgentsViewProperties = {
 
 export function RepoAgentsView({
 	selectedAgent,
+	model,
 	prompt,
 	messages,
 	logs,
@@ -115,6 +117,11 @@ export function RepoAgentsView({
 								? `${messageCount} ${messageCount === 1 ? 'message' : 'messages'} in this chat`
 								: 'Choose an agent from the sidebar to start chatting'}
 						</p>
+						{model && (
+							<p className="mt-0.5 truncate text-xs text-muted-foreground">
+								Model: {model}
+							</p>
+						)}
 					</div>
 					<div className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/70 px-3 py-1.5 text-xs font-medium text-muted-foreground">
 						<span

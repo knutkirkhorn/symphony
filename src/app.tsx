@@ -87,6 +87,12 @@ type ToolCallLifecycleRecord = {
 	};
 };
 
+type SystemInitRecord = {
+	type: 'system';
+	subtype?: string;
+	model?: string;
+};
+
 type HostAccessSettings = {
 	allowLanAccess: boolean;
 };
@@ -172,6 +178,10 @@ function parseAgentConversationLine(
 			if (text) return {role: 'assistant', text};
 		}
 
+		if (record.type === 'system' && record.subtype === 'init') {
+			return null;
+		}
+
 		if (record.type === 'tool_call' && record.subtype === 'started') {
 			const command = record.tool_call?.shellToolCall?.args?.command;
 			if (command) return {role: 'tool', text: `Running: ${command}`};
@@ -191,6 +201,19 @@ function parseAgentConversationLine(
 		return {role: 'system', text: line};
 	} catch {
 		return {role: 'system', text: line};
+	}
+}
+
+function parseSystemInitRecord(rawLine: string) {
+	try {
+		const data: unknown = JSON.parse(rawLine);
+		if (!data || typeof data !== 'object') return null;
+		const record = data as SystemInitRecord;
+		if (record.type !== 'system' || record.subtype !== 'init') return null;
+		const model = record.model?.trim();
+		return model ? {model} : {model: null};
+	} catch {
+		return null;
 	}
 }
 
@@ -292,6 +315,9 @@ function App() {
 		Record<number, AgentConversationEntry[]>
 	>({});
 	const [agentLogsById, setAgentLogsById] = useState<Record<number, string[]>>(
+		{},
+	);
+	const [agentModelById, setAgentModelById] = useState<Record<number, string>>(
 		{},
 	);
 	const [historyCommits, setHistoryCommits] = useState<GitCommit[]>([]);
@@ -670,6 +696,7 @@ function App() {
 			setRunningAgentIds([]);
 			setAgentMessagesById({});
 			setAgentLogsById({});
+			setAgentModelById({});
 			thinkingMessageIdByAgentReference.current = {};
 			pendingEditedPathByAgentReference.current = {};
 			return;
@@ -924,6 +951,16 @@ function App() {
 					}
 					return;
 				}
+				const systemInit = parseSystemInitRecord(payload.line);
+				if (systemInit) {
+					if (systemInit.model) {
+						setAgentModelById(previous => ({
+							...previous,
+							[agentId]: systemInit.model,
+						}));
+					}
+					return;
+				}
 				const editToolCall = parseEditToolCallLifecycle(payload.line);
 				if (editToolCall?.event === 'started') {
 					pendingEditedPathByAgentReference.current[agentId] =
@@ -1110,6 +1147,11 @@ function App() {
 					return next;
 				});
 				setRunningAgentIds(previous => previous.filter(id => id !== agent.id));
+				setAgentModelById(previous => {
+					const next = {...previous};
+					delete next[agent.id];
+					return next;
+				});
 				delete thinkingMessageIdByAgentReference.current[agent.id];
 				delete pendingEditedPathByAgentReference.current[agent.id];
 				toast.success(`Deleted agent "${agent.name}"`);
@@ -1177,6 +1219,9 @@ function App() {
 	const selectedAgentLogs = selectedAgentId
 		? (agentLogsById[selectedAgentId] ?? [])
 		: [];
+	const selectedAgentModel = selectedAgentId
+		? (agentModelById[selectedAgentId] ?? null)
+		: null;
 
 	if (!isRuntimeAuthorized) {
 		return (
@@ -1372,6 +1417,7 @@ function App() {
 						{activeRepoViewTab === 'agent' ? (
 							<RepoAgentsView
 								selectedAgent={selectedAgent}
+								model={selectedAgentModel}
 								prompt={agentPrompt}
 								messages={selectedAgentMessages}
 								logs={selectedAgentLogs}
