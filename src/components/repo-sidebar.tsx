@@ -1851,6 +1851,7 @@ export function RepoSidebar({
 						</Button>
 						<Button
 							variant="destructive"
+							className="bg-destructive/10 text-destructive hover:bg-destructive/20"
 							onClick={() => {
 								onHostLanAccessChange(false);
 								setIsLanUrlDialogOpen(false);
