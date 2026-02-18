@@ -3,13 +3,13 @@ mod db;
 mod host_api;
 
 use commands::{
-    add_repo, clone_repo, create_agent, create_group, create_local_branch, delete_agent,
-    delete_group, delete_local_branch, get_commit_changes, get_current_branch, get_remote_url,
-    get_repo_sync_status, get_repo_working_tree_status, get_working_tree_file_diff, list_agents,
-    list_git_history, list_groups, list_local_branches, list_repos, list_working_tree_changes,
-    move_repo_to_group, open_in_cursor, open_in_file_manager, pull_repo, remove_repo, rename_agent,
-    rename_group, run_repo_agent, stop_repo_agent, switch_branch, AgentRuntimeState,
-    commit_working_tree,
+    add_repo, clone_repo, commit_working_tree, create_agent, create_group, create_local_branch,
+    delete_agent, delete_group, delete_local_branch, get_commit_changes, get_current_branch,
+    get_remote_url, get_repo_sync_status, get_repo_working_tree_status, get_working_tree_file_diff,
+    list_agents, list_git_history, list_groups, list_local_branches, list_repos,
+    list_working_tree_changes, move_repo_to_group, open_in_cursor, open_in_file_manager, pull_repo,
+    remove_repo, rename_agent, rename_group, run_repo_agent, stop_repo_agent, switch_branch,
+    AgentRuntimeState,
 };
 use db::Database;
 use host_api::{start_host_bridge, HostBridgeState};

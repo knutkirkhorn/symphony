@@ -11,19 +11,20 @@ use crate::db::Database;
 use axum::extract::{Query, State as AxumState};
 use axum::http::header::AUTHORIZATION;
 use axum::http::{HeaderMap, StatusCode};
-use axum::response::Response;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::IntoResponse;
+use axum::response::Response;
 use axum::routing::{get, post};
 use axum::Json;
 use axum::Router;
+use qrcode::{render::unicode, QrCode};
 use rand::distr::Alphanumeric;
 use rand::Rng;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::convert::Infallible;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr, UdpSocket};
 use tauri::{Manager, State as TauriState};
 use tokio::net::TcpListener;
 use tokio::sync::broadcast;
@@ -276,6 +277,46 @@ fn is_authorized(headers: &HeaderMap, query_token: Option<&str>, expected_token:
     token.as_deref() == Some(expected_token)
 }
 
+fn read_web_port() -> u16 {
+    std::env::var("SYMPHONY_WEB_PORT")
+        .ok()
+        .and_then(|value| value.parse::<u16>().ok())
+        .unwrap_or(1420)
+}
+
+fn detect_local_ip_address() -> Option<IpAddr> {
+    let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
+    socket.connect("8.8.8.8:80").ok()?;
+    Some(socket.local_addr().ok()?.ip())
+}
+
+fn print_access_qr_code(auth_token: &str) {
+    let web_port = read_web_port();
+    let localhost_url = format!("http://localhost:{}?access_token={}", web_port, auth_token);
+    let lan_url = detect_local_ip_address()
+        .map(|ip| format!("http://{}:{}?access_token={}", ip, web_port, auth_token));
+    let qr_target_url = lan_url.as_deref().unwrap_or(localhost_url.as_str());
+
+    println!("Symphony web access URL (localhost): {}", localhost_url);
+    if let Some(url) = lan_url.as_ref() {
+        println!("Symphony web access URL (mobile/LAN): {}", url);
+    }
+
+    match QrCode::new(qr_target_url.as_bytes()) {
+        Ok(qr_code) => {
+            let rendered = qr_code
+                .render::<unicode::Dense1x2>()
+                .quiet_zone(true)
+                .build();
+            println!("Scan this QR code to open Symphony in your browser:");
+            println!("{}", rendered);
+        }
+        Err(error) => {
+            eprintln!("Failed to generate QR code for web access URL: {}", error);
+        }
+    }
+}
+
 fn invoke_dispatch(
     app: &tauri::AppHandle,
     command_name: &str,
@@ -288,20 +329,20 @@ fn invoke_dispatch(
         "list_repos" => Ok(serde_json::to_value(list_repos(db)?).map_err(|e| e.to_string())?),
         "add_repo" => {
             let parsed: AddRepoArgs = deserialize_args(args)?;
-            Ok(serde_json::to_value(add_repo(db, parsed.path, parsed.group_id)?)
-                .map_err(|e| e.to_string())?)
+            Ok(
+                serde_json::to_value(add_repo(db, parsed.path, parsed.group_id)?)
+                    .map_err(|e| e.to_string())?,
+            )
         }
         "clone_repo" => {
             let parsed: CloneRepoArgs = deserialize_args(args)?;
-            Ok(
-                serde_json::to_value(clone_repo(
-                    db,
-                    parsed.url,
-                    parsed.destination_parent,
-                    parsed.group_id,
-                )?)
-                .map_err(|e| e.to_string())?,
-            )
+            Ok(serde_json::to_value(clone_repo(
+                db,
+                parsed.url,
+                parsed.destination_parent,
+                parsed.group_id,
+            )?)
+            .map_err(|e| e.to_string())?)
         }
         "remove_repo" => {
             let parsed: RemoveRepoArgs = deserialize_args(args)?;
@@ -324,14 +365,15 @@ fn invoke_dispatch(
         }
         "get_current_branch" => {
             let parsed: PathArgs = deserialize_args(args)?;
-            Ok(serde_json::to_value(get_current_branch(parsed.path)?).map_err(|e| e.to_string())?)
+            Ok(
+                serde_json::to_value(get_current_branch(parsed.path)?)
+                    .map_err(|e| e.to_string())?,
+            )
         }
         "list_local_branches" => {
             let parsed: PathArgs = deserialize_args(args)?;
-            Ok(
-                serde_json::to_value(list_local_branches(parsed.path)?)
-                    .map_err(|e| e.to_string())?,
-            )
+            Ok(serde_json::to_value(list_local_branches(parsed.path)?)
+                .map_err(|e| e.to_string())?)
         }
         "get_repo_working_tree_status" => {
             let parsed: PathArgs = deserialize_args(args)?;
@@ -342,14 +384,12 @@ fn invoke_dispatch(
         }
         "switch_branch" => {
             let parsed: SwitchBranchArgs = deserialize_args(args)?;
-            Ok(
-                serde_json::to_value(switch_branch(
-                    parsed.path,
-                    parsed.target_branch,
-                    parsed.move_changes,
-                )?)
-                .map_err(|e| e.to_string())?,
-            )
+            Ok(serde_json::to_value(switch_branch(
+                parsed.path,
+                parsed.target_branch,
+                parsed.move_changes,
+            )?)
+            .map_err(|e| e.to_string())?)
         }
         "create_local_branch" => {
             let parsed: CreateLocalBranchArgs = deserialize_args(args)?;
@@ -360,14 +400,12 @@ fn invoke_dispatch(
         }
         "delete_local_branch" => {
             let parsed: DeleteLocalBranchArgs = deserialize_args(args)?;
-            Ok(
-                serde_json::to_value(delete_local_branch(
-                    parsed.path,
-                    parsed.branch_name,
-                    parsed.force,
-                )?)
-                .map_err(|e| e.to_string())?,
-            )
+            Ok(serde_json::to_value(delete_local_branch(
+                parsed.path,
+                parsed.branch_name,
+                parsed.force,
+            )?)
+            .map_err(|e| e.to_string())?)
         }
         "get_repo_sync_status" => {
             let parsed: RepoSyncArgs = deserialize_args(args)?;
@@ -410,14 +448,19 @@ fn invoke_dispatch(
         }
         "commit_working_tree" => {
             let parsed: CommitWorkingTreeArgs = deserialize_args(args)?;
-            Ok(
-                serde_json::to_value(commit_working_tree(parsed.path, parsed.message, parsed.files)?)
-                    .map_err(|e| e.to_string())?,
-            )
+            Ok(serde_json::to_value(commit_working_tree(
+                parsed.path,
+                parsed.message,
+                parsed.files,
+            )?)
+            .map_err(|e| e.to_string())?)
         }
         "list_agents" => {
             let parsed: RepoIdArgs = deserialize_args(args)?;
-            Ok(serde_json::to_value(list_agents(db, parsed.repo_id)?).map_err(|e| e.to_string())?)
+            Ok(
+                serde_json::to_value(list_agents(db, parsed.repo_id)?)
+                    .map_err(|e| e.to_string())?,
+            )
         }
         "create_agent" => {
             let parsed: CreateAgentArgs = deserialize_args(args)?;
@@ -559,12 +602,12 @@ async fn events_handler(
             payload: event.payload,
         };
         let data = serde_json::to_string(&envelope).unwrap_or_else(|_| "null".to_string());
-        Some(Ok::<Event, Infallible>(
-            Event::default().data(data),
-        ))
+        Some(Ok::<Event, Infallible>(Event::default().data(data)))
     });
 
-    Sse::new(stream).keep_alive(KeepAlive::default()).into_response()
+    Sse::new(stream)
+        .keep_alive(KeepAlive::default())
+        .into_response()
 }
 
 async fn verify_auth_handler(
@@ -602,6 +645,7 @@ pub fn start_host_bridge(app: tauri::AppHandle, events: HostBridgeState) {
         );
         generated
     });
+    print_access_qr_code(&auth_token);
 
     tauri::async_runtime::spawn(async move {
         let state = HttpBridgeAppState {
@@ -625,12 +669,18 @@ pub fn start_host_bridge(app: tauri::AppHandle, events: HostBridgeState) {
         let listener = match TcpListener::bind(socket_address).await {
             Ok(listener) => listener,
             Err(error) => {
-                eprintln!("Failed to bind Symphony host bridge at {}: {}", socket_address, error);
+                eprintln!(
+                    "Failed to bind Symphony host bridge at {}: {}",
+                    socket_address, error
+                );
                 return;
             }
         };
 
-        println!("Symphony host bridge listening on http://{}", socket_address);
+        println!(
+            "Symphony host bridge listening on http://{}",
+            socket_address
+        );
 
         if let Err(error) = axum::serve(listener, app_router).await {
             eprintln!("Symphony host bridge stopped with error: {}", error);
