@@ -63,7 +63,7 @@ import {
 	SidebarMenuSubItem,
 } from '@/components/ui/sidebar';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
-import {invoke} from '@/lib/host-bridge';
+import {invoke, openUrl} from '@/lib/host-bridge';
 import type {Agent, Group, Repo, RepoSyncStatus} from '@/lib/types';
 import {cn} from '@/lib/utils';
 import {
@@ -71,7 +71,9 @@ import {
 	Bot,
 	Check,
 	ChevronRight,
+	Copy,
 	Download,
+	ExternalLink,
 	FolderGit2,
 	FolderPlus,
 	GitBranch,
@@ -113,6 +115,8 @@ type RepoSidebarProperties = {
 	isSettingsActive: boolean;
 	onSettingsClick: () => void;
 	isSimulatorMode: boolean;
+	hostLanAccessEnabled: boolean;
+	lanListenUrl: string | null;
 };
 
 type LocalBranch = {
@@ -1499,6 +1503,8 @@ export function RepoSidebar({
 	isSettingsActive,
 	onSettingsClick,
 	isSimulatorMode,
+	hostLanAccessEnabled,
+	lanListenUrl,
 }: RepoSidebarProperties) {
 	const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
 	const [isAddRepoOpen, setIsAddRepoOpen] = useState(false);
@@ -1507,6 +1513,7 @@ export function RepoSidebar({
 	const inputReference = useRef<HTMLInputElement>(null);
 	const [activeDropZone, setActiveDropZone] = useState<DropZone | null>(null);
 	const [isPointerDragging, setIsPointerDragging] = useState(false);
+	const [isLanUrlDialogOpen, setIsLanUrlDialogOpen] = useState(false);
 
 	const ungroupedRepos = repos.filter(r => r.group_id === null);
 
@@ -1620,6 +1627,20 @@ export function RepoSidebar({
 								</TooltipTrigger>
 								<TooltipContent side="top">Simulator mode</TooltipContent>
 							</Tooltip>
+						)}
+						{hostLanAccessEnabled && (
+							<Button
+								variant="ghost"
+								size="sm"
+								className="h-auto gap-1.5 px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
+								onClick={() => setIsLanUrlDialogOpen(true)}
+							>
+								<span
+									aria-hidden
+									className="inline-flex size-2 shrink-0 rounded-full bg-green-500"
+								/>
+								Server running
+							</Button>
 						)}
 					</div>
 					<div className="flex items-center gap-0.5">
@@ -1765,6 +1786,55 @@ export function RepoSidebar({
 				onReposChange={onReposChange}
 				groupId={addRepoGroupId ?? undefined}
 			/>
+
+			{/* LAN server URL dialog */}
+			<Dialog open={isLanUrlDialogOpen} onOpenChange={setIsLanUrlDialogOpen}>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>Server URL</DialogTitle>
+						<DialogDescription>
+							Use this URL to open Symphony from other devices on your network.
+						</DialogDescription>
+					</DialogHeader>
+					<div className="py-2">
+						<Input
+							readOnly
+							value={lanListenUrl ?? ''}
+							placeholder="Loading…"
+							className="font-mono text-sm"
+						/>
+					</div>
+					<DialogFooter>
+						<Button
+							type="button"
+							variant="outline"
+							onClick={async () => {
+								if (lanListenUrl) {
+									await navigator.clipboard.writeText(lanListenUrl);
+									toast.success('Copied to clipboard');
+								}
+							}}
+							disabled={!lanListenUrl}
+						>
+							<Copy className="size-4" />
+							Copy
+						</Button>
+						<Button
+							type="button"
+							onClick={() => {
+								if (lanListenUrl) {
+									void openUrl(lanListenUrl);
+									setIsLanUrlDialogOpen(false);
+								}
+							}}
+							disabled={!lanListenUrl}
+						>
+							<ExternalLink className="size-4" />
+							Open
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
 
 			{/* Create Group Dialog */}
 			<Dialog open={isCreateGroupOpen} onOpenChange={setIsCreateGroupOpen}>

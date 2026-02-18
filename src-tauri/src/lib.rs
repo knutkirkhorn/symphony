@@ -13,8 +13,8 @@ use commands::{
 };
 use db::Database;
 use host_api::{
-    create_host_access_state, get_host_access_settings, set_host_access_settings,
-    start_host_bridge, HostBridgeState,
+    create_host_access_state, get_host_access_settings, get_lan_listen_url,
+    set_host_access_settings, start_host_bridge, HostBridgeState,
 };
 use std::collections::HashMap;
 
@@ -74,6 +74,7 @@ pub fn run() {
             delete_group,
             move_repo_to_group,
             get_host_access_settings,
+            get_lan_listen_url,
             set_host_access_settings
         ])
         .run(tauri::generate_context!())

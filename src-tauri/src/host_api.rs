@@ -434,6 +434,18 @@ pub fn set_host_access_settings(
     current_host_access_settings(&state)
 }
 
+#[tauri::command]
+pub fn get_lan_listen_url(state: TauriState<'_, HostAccessState>) -> Option<String> {
+    if !state.allow_lan_access.load(Ordering::Relaxed) {
+        return None;
+    }
+    let port = read_web_port();
+    let url = detect_local_ip_address()
+        .map(|ip| format!("http://{}:{}", ip, port))
+        .unwrap_or_else(|| format!("http://localhost:{}", port));
+    Some(url)
+}
+
 fn invoke_dispatch(
     app: &tauri::AppHandle,
     command_name: &str,

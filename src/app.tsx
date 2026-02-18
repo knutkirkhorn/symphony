@@ -239,6 +239,7 @@ function App() {
 		}
 	});
 	const [hostLanAccessEnabled, setHostLanAccessEnabled] = useState(false);
+	const [lanListenUrl, setLanListenUrl] = useState<string | null>(null);
 	const [isHostLanAccessLoading, setIsHostLanAccessLoading] = useState(false);
 	const [agentsByRepoId, setAgentsByRepoId] = useState<Record<number, Agent[]>>(
 		{},
@@ -318,6 +319,12 @@ function App() {
 				'get_host_access_settings',
 			);
 			setHostLanAccessEnabled(result.allowLanAccess);
+			if (result.allowLanAccess && isTauriRuntime) {
+				const url = await invoke<string | null>('get_lan_listen_url');
+				setLanListenUrl(url ?? null);
+			} else {
+				setLanListenUrl(null);
+			}
 		} catch (error) {
 			console.error('Failed to load host access settings:', error);
 		} finally {
@@ -335,6 +342,12 @@ function App() {
 				},
 			);
 			setHostLanAccessEnabled(result.allowLanAccess);
+			if (result.allowLanAccess && isTauriRuntime) {
+				const url = await invoke<string | null>('get_lan_listen_url');
+				setLanListenUrl(url ?? null);
+			} else {
+				setLanListenUrl(null);
+			}
 		} catch (error) {
 			toast.error(String(error));
 		} finally {
@@ -1187,6 +1200,8 @@ function App() {
 				isSettingsActive={activeView === 'settings'}
 				onSettingsClick={() => setActiveView('settings')}
 				isSimulatorMode={isSimulatorMode}
+				hostLanAccessEnabled={hostLanAccessEnabled}
+				lanListenUrl={lanListenUrl}
 			/>
 			<SidebarInset>
 				<div className="sticky top-0 z-20 flex items-center gap-2 border-b bg-background/95 px-3 py-2 backdrop-blur md:hidden">
