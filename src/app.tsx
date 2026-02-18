@@ -79,6 +79,10 @@ type AgentStreamRecord = {
 	text?: string;
 };
 
+type HostAccessSettings = {
+	allowLanAccess: boolean;
+};
+
 function isMacOS() {
 	if (typeof navigator === 'undefined') return false;
 	const platform = navigator.platform.toUpperCase();
@@ -234,6 +238,8 @@ function App() {
 			return false;
 		}
 	});
+	const [hostLanAccessEnabled, setHostLanAccessEnabled] = useState(false);
+	const [isHostLanAccessLoading, setIsHostLanAccessLoading] = useState(false);
 	const [agentsByRepoId, setAgentsByRepoId] = useState<Record<number, Agent[]>>(
 		{},
 	);
@@ -302,6 +308,38 @@ function App() {
 		setHostAuthState('unauthorized');
 		setHostAuthError('Invalid token');
 		return false;
+	}, []);
+
+	const loadHostAccessSettings = useCallback(async () => {
+		if (!isRuntimeAuthorized) return;
+		setIsHostLanAccessLoading(true);
+		try {
+			const result = await invoke<HostAccessSettings>(
+				'get_host_access_settings',
+			);
+			setHostLanAccessEnabled(result.allowLanAccess);
+		} catch (error) {
+			console.error('Failed to load host access settings:', error);
+		} finally {
+			setIsHostLanAccessLoading(false);
+		}
+	}, [isRuntimeAuthorized]);
+
+	const updateHostLanAccess = useCallback(async (enabled: boolean) => {
+		setIsHostLanAccessLoading(true);
+		try {
+			const result = await invoke<HostAccessSettings>(
+				'set_host_access_settings',
+				{
+					allowLanAccess: enabled,
+				},
+			);
+			setHostLanAccessEnabled(result.allowLanAccess);
+		} catch (error) {
+			toast.error(String(error));
+		} finally {
+			setIsHostLanAccessLoading(false);
+		}
 	}, []);
 
 	const openSelectedRepoInExplorer = useCallback(async () => {
@@ -535,7 +573,8 @@ function App() {
 		if (!isRuntimeAuthorized) return;
 		loadRepos();
 		loadGroups();
-	}, [isRuntimeAuthorized, loadRepos, loadGroups]);
+		loadHostAccessSettings();
+	}, [isRuntimeAuthorized, loadRepos, loadGroups, loadHostAccessSettings]);
 
 	useEffect(() => {
 		(async () => {
@@ -1163,6 +1202,9 @@ function App() {
 						version={appVersion}
 						isVersionLoading={isVersionLoading}
 						versionError={versionError}
+						hostLanAccessEnabled={hostLanAccessEnabled}
+						isHostLanAccessLoading={isHostLanAccessLoading}
+						onHostLanAccessChange={enabled => void updateHostLanAccess(enabled)}
 						simulatorMode={isSimulatorMode}
 						onSimulatorModeChange={setIsSimulatorMode}
 						rawLogs={showRawLogs}

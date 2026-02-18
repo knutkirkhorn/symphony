@@ -12,24 +12,33 @@ use commands::{
     AgentRuntimeState,
 };
 use db::Database;
-use host_api::{start_host_bridge, HostBridgeState};
+use host_api::{
+    create_host_access_state, get_host_access_settings, set_host_access_settings,
+    start_host_bridge, HostBridgeState,
+};
 use std::collections::HashMap;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let database = Database::new().expect("Failed to initialize database");
     let host_bridge_state = HostBridgeState::new();
+    let host_access_state = create_host_access_state();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(database)
         .manage(host_bridge_state.clone())
+        .manage(host_access_state.clone())
         .manage(AgentRuntimeState {
             pids_by_agent_id: std::sync::Mutex::new(HashMap::new()),
         })
         .setup(move |app| {
-            start_host_bridge(app.handle().clone(), host_bridge_state.clone());
+            start_host_bridge(
+                app.handle().clone(),
+                host_bridge_state.clone(),
+                host_access_state.clone(),
+            );
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -63,7 +72,9 @@ pub fn run() {
             create_group,
             rename_group,
             delete_group,
-            move_repo_to_group
+            move_repo_to_group,
+            get_host_access_settings,
+            set_host_access_settings
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -8,7 +8,7 @@ use crate::commands::{
     AgentRuntimeState,
 };
 use crate::db::Database;
-use axum::extract::{Query, State as AxumState};
+use axum::extract::{ConnectInfo, Query, State as AxumState};
 use axum::http::header::AUTHORIZATION;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
@@ -24,7 +24,11 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::convert::Infallible;
+use std::fs;
 use std::net::{IpAddr, SocketAddr, UdpSocket};
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use tauri::{Manager, State as TauriState};
 use tokio::net::TcpListener;
 use tokio::sync::broadcast;
@@ -72,6 +76,40 @@ struct HttpBridgeAppState {
     app: tauri::AppHandle,
     events: HostBridgeState,
     auth_token: String,
+    allow_lan_access: Arc<AtomicBool>,
+}
+
+#[derive(Clone)]
+pub struct HostAccessState {
+    allow_lan_access: Arc<AtomicBool>,
+    settings_path: Option<PathBuf>,
+}
+
+impl HostAccessState {
+    pub fn new(initial_allow_lan_access: bool, settings_path: Option<PathBuf>) -> Self {
+        Self {
+            allow_lan_access: Arc::new(AtomicBool::new(initial_allow_lan_access)),
+            settings_path,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HostAccessSettings {
+    allow_lan_access: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PersistedHostAccessSettings {
+    allow_lan_access: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SetHostAccessSettingsArgs {
+    allow_lan_access: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -284,6 +322,54 @@ fn read_web_port() -> u16 {
         .unwrap_or(1420)
 }
 
+fn host_access_settings_path() -> Option<PathBuf> {
+    let base_directory = dirs::data_local_dir()?;
+    Some(
+        base_directory
+            .join("symphony")
+            .join("host_access_settings.json"),
+    )
+}
+
+fn read_persisted_host_access_settings(path: &PathBuf) -> Option<HostAccessSettings> {
+    let contents = fs::read_to_string(path).ok()?;
+    let parsed: PersistedHostAccessSettings = serde_json::from_str(&contents).ok()?;
+    Some(HostAccessSettings {
+        allow_lan_access: parsed.allow_lan_access,
+    })
+}
+
+fn write_persisted_host_access_settings(
+    path: &PathBuf,
+    allow_lan_access: bool,
+) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    let payload = PersistedHostAccessSettings { allow_lan_access };
+    let serialized = serde_json::to_string_pretty(&payload).map_err(|error| error.to_string())?;
+    fs::write(path, serialized).map_err(|error| error.to_string())
+}
+
+pub fn create_host_access_state() -> HostAccessState {
+    let settings_path = host_access_settings_path();
+    let persisted_allow_lan_access = settings_path
+        .as_ref()
+        .and_then(read_persisted_host_access_settings)
+        .map(|settings| settings.allow_lan_access)
+        .unwrap_or(false);
+
+    let initial_allow_lan_access = std::env::var("SYMPHONY_ALLOW_LAN")
+        .ok()
+        .map(|value| {
+            let normalized = value.trim().to_ascii_lowercase();
+            normalized == "1" || normalized == "true" || normalized == "yes"
+        })
+        .unwrap_or(persisted_allow_lan_access);
+
+    HostAccessState::new(initial_allow_lan_access, settings_path)
+}
+
 fn detect_local_ip_address() -> Option<IpAddr> {
     let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
     socket.connect("8.8.8.8:80").ok()?;
@@ -317,6 +403,37 @@ fn print_access_qr_code(auth_token: &str) {
     }
 }
 
+fn client_access_allowed(remote_address: SocketAddr, allow_lan_access: bool) -> bool {
+    allow_lan_access || remote_address.ip().is_loopback()
+}
+
+fn current_host_access_settings(state: &HostAccessState) -> HostAccessSettings {
+    HostAccessSettings {
+        allow_lan_access: state.allow_lan_access.load(Ordering::Relaxed),
+    }
+}
+
+#[tauri::command]
+pub fn get_host_access_settings(state: TauriState<'_, HostAccessState>) -> HostAccessSettings {
+    current_host_access_settings(&state)
+}
+
+#[tauri::command]
+pub fn set_host_access_settings(
+    state: TauriState<'_, HostAccessState>,
+    allow_lan_access: bool,
+) -> HostAccessSettings {
+    state
+        .allow_lan_access
+        .store(allow_lan_access, Ordering::Relaxed);
+    if let Some(path) = state.settings_path.as_ref() {
+        if let Err(error) = write_persisted_host_access_settings(path, allow_lan_access) {
+            eprintln!("Failed to persist host access settings: {}", error);
+        }
+    }
+    current_host_access_settings(&state)
+}
+
 fn invoke_dispatch(
     app: &tauri::AppHandle,
     command_name: &str,
@@ -324,6 +441,7 @@ fn invoke_dispatch(
 ) -> Result<Value, String> {
     let db: TauriState<'_, Database> = app.state();
     let agent_runtime: TauriState<'_, AgentRuntimeState> = app.state();
+    let host_access_state: TauriState<'_, HostAccessState> = app.state();
 
     match command_name {
         "list_repos" => Ok(serde_json::to_value(list_repos(db)?).map_err(|e| e.to_string())?),
@@ -518,15 +636,41 @@ fn invoke_dispatch(
             move_repo_to_group(db, parsed.repo_id, parsed.group_id)?;
             Ok(Value::Null)
         }
+        "get_host_access_settings" => Ok(serde_json::to_value(current_host_access_settings(
+            &host_access_state,
+        ))
+        .map_err(|error| error.to_string())?),
+        "set_host_access_settings" => {
+            let parsed: SetHostAccessSettingsArgs = deserialize_args(args)?;
+            Ok(serde_json::to_value(set_host_access_settings(
+                host_access_state,
+                parsed.allow_lan_access,
+            ))
+            .map_err(|error| error.to_string())?)
+        }
         _ => Err(format!("Unknown command: {}", command_name)),
     }
 }
 
 async fn invoke_handler(
     AxumState(state): AxumState<HttpBridgeAppState>,
+    ConnectInfo(remote_address): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     Json(request): Json<InvokeRequest>,
 ) -> impl IntoResponse {
+    if !client_access_allowed(
+        remote_address,
+        state.allow_lan_access.load(Ordering::Relaxed),
+    ) {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(InvokeResponse {
+                ok: false,
+                data: None,
+                error: Some("LAN access is disabled".to_string()),
+            }),
+        );
+    }
     if !is_authorized(&headers, None, &state.auth_token) {
         return (
             StatusCode::UNAUTHORIZED,
@@ -575,8 +719,15 @@ async fn invoke_handler(
 
 async fn health_handler(
     AxumState(state): AxumState<HttpBridgeAppState>,
+    ConnectInfo(remote_address): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
+    if !client_access_allowed(
+        remote_address,
+        state.allow_lan_access.load(Ordering::Relaxed),
+    ) {
+        return (StatusCode::FORBIDDEN, Json(json!({ "ok": false })));
+    }
     if !is_authorized(&headers, None, &state.auth_token) {
         return (StatusCode::UNAUTHORIZED, Json(json!({ "ok": false })));
     }
@@ -585,9 +736,16 @@ async fn health_handler(
 
 async fn events_handler(
     AxumState(state): AxumState<HttpBridgeAppState>,
+    ConnectInfo(remote_address): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     Query(query): Query<EventQueryParameters>,
 ) -> Response {
+    if !client_access_allowed(
+        remote_address,
+        state.allow_lan_access.load(Ordering::Relaxed),
+    ) {
+        return (StatusCode::FORBIDDEN, "LAN access is disabled").into_response();
+    }
     if !is_authorized(&headers, query.token.as_deref(), &state.auth_token) {
         return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
     }
@@ -612,16 +770,27 @@ async fn events_handler(
 
 async fn verify_auth_handler(
     AxumState(state): AxumState<HttpBridgeAppState>,
+    ConnectInfo(remote_address): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
+    if !client_access_allowed(
+        remote_address,
+        state.allow_lan_access.load(Ordering::Relaxed),
+    ) {
+        return (StatusCode::FORBIDDEN, Json(json!({ "ok": false })));
+    }
     if !is_authorized(&headers, None, &state.auth_token) {
         return (StatusCode::UNAUTHORIZED, Json(json!({ "ok": false })));
     }
     (StatusCode::OK, Json(json!({ "ok": true })))
 }
 
-pub fn start_host_bridge(app: tauri::AppHandle, events: HostBridgeState) {
-    let bind_host = std::env::var("SYMPHONY_HOST_BIND").unwrap_or_else(|_| "127.0.0.1".to_string());
+pub fn start_host_bridge(
+    app: tauri::AppHandle,
+    events: HostBridgeState,
+    host_access_state: HostAccessState,
+) {
+    let bind_host = std::env::var("SYMPHONY_HOST_BIND").unwrap_or_else(|_| "0.0.0.0".to_string());
     let bind_port = std::env::var("SYMPHONY_HOST_PORT")
         .ok()
         .and_then(|value| value.parse::<u16>().ok())
@@ -646,12 +815,21 @@ pub fn start_host_bridge(app: tauri::AppHandle, events: HostBridgeState) {
         generated
     });
     print_access_qr_code(&auth_token);
+    println!(
+        "Symphony LAN access is {}",
+        if host_access_state.allow_lan_access.load(Ordering::Relaxed) {
+            "enabled"
+        } else {
+            "disabled"
+        }
+    );
 
     tauri::async_runtime::spawn(async move {
         let state = HttpBridgeAppState {
             app,
             events,
             auth_token,
+            allow_lan_access: host_access_state.allow_lan_access,
         };
         let app_router = Router::new()
             .route("/health", get(health_handler))
@@ -682,7 +860,12 @@ pub fn start_host_bridge(app: tauri::AppHandle, events: HostBridgeState) {
             socket_address
         );
 
-        if let Err(error) = axum::serve(listener, app_router).await {
+        if let Err(error) = axum::serve(
+            listener,
+            app_router.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        {
             eprintln!("Symphony host bridge stopped with error: {}", error);
         }
     });

@@ -2,6 +2,9 @@ type SettingsViewProperties = {
 	version: string | null;
 	isVersionLoading: boolean;
 	versionError: string | null;
+	hostLanAccessEnabled: boolean;
+	isHostLanAccessLoading: boolean;
+	onHostLanAccessChange: (enabled: boolean) => void;
 	simulatorMode: boolean;
 	onSimulatorModeChange: (enabled: boolean) => void;
 	rawLogs: boolean;
@@ -12,6 +15,9 @@ export function SettingsView({
 	version,
 	isVersionLoading,
 	versionError,
+	hostLanAccessEnabled,
+	isHostLanAccessLoading,
+	onHostLanAccessChange,
 	simulatorMode,
 	onSimulatorModeChange,
 	rawLogs,
@@ -41,6 +47,38 @@ export function SettingsView({
 					{versionError && (
 						<p className="mt-2 text-xs text-destructive">{versionError}</p>
 					)}
+				</div>
+				<div className="mt-4 max-w-xl rounded-lg border bg-card p-4">
+					<p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+						Network access
+					</p>
+					<div className="mt-3 flex items-center justify-between gap-3">
+						<div>
+							<p className="text-sm font-medium">Allow mobile/LAN access</p>
+							<p className="text-xs text-muted-foreground">
+								Allow devices on your local network to open Symphony.
+							</p>
+						</div>
+						<button
+							type="button"
+							role="switch"
+							aria-checked={hostLanAccessEnabled}
+							aria-label="Toggle mobile or LAN access"
+							className={`relative inline-flex h-6 w-11 items-center rounded-full border transition-colors ${
+								hostLanAccessEnabled
+									? 'border-yellow-500 bg-yellow-400/80'
+									: 'border-border bg-muted'
+							}`}
+							onClick={() => onHostLanAccessChange(!hostLanAccessEnabled)}
+							disabled={isHostLanAccessLoading}
+						>
+							<span
+								className={`inline-block size-5 rounded-full bg-background shadow transition-transform ${
+									hostLanAccessEnabled ? 'translate-x-5' : 'translate-x-0'
+								}`}
+							/>
+						</button>
+					</div>
 				</div>
 				<div className="mt-4 max-w-xl rounded-lg border bg-card p-4">
 					<p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
