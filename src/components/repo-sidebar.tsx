@@ -1803,18 +1803,18 @@ export function RepoSidebar({
 							Use this URL to open Symphony from other devices on your network.
 						</DialogDescription>
 					</DialogHeader>
-					<div className="py-2">
+					<div className="relative py-2">
 						<Input
 							readOnly
 							value={lanListenUrl ?? ''}
 							placeholder="Loading…"
-							className="font-mono text-sm"
+							className="font-mono text-sm pr-20"
 						/>
-					</div>
-					<DialogFooter>
 						<Button
 							type="button"
 							variant="outline"
+							size="sm"
+							className="absolute right-1 top-1/2 h-7 -translate-y-1/2 px-2 text-xs"
 							onClick={async () => {
 								if (lanListenUrl) {
 									await navigator.clipboard.writeText(lanListenUrl);
@@ -1836,6 +1836,14 @@ export function RepoSidebar({
 								</>
 							)}
 						</Button>
+					</div>
+					<DialogFooter>
+						<Button
+							variant="outline"
+							onClick={() => setIsLanUrlDialogOpen(false)}
+						>
+							Close
+						</Button>
 						<Button
 							type="button"
 							onClick={() => {
@@ -1847,7 +1855,7 @@ export function RepoSidebar({
 							disabled={!lanListenUrl}
 						>
 							<ExternalLink className="size-4" />
-							Open
+							Open in browser
 						</Button>
 					</DialogFooter>
 				</DialogContent>
