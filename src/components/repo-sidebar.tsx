@@ -83,6 +83,7 @@ import {
 	Plus,
 	RefreshCw,
 	Settings,
+	Square,
 	Trash2,
 } from 'lucide-react';
 import {useCallback, useEffect, useRef, useState, type FormEvent} from 'react';
@@ -117,6 +118,8 @@ type RepoSidebarProperties = {
 	isSimulatorMode: boolean;
 	hostLanAccessEnabled: boolean;
 	lanListenUrl: string | null;
+	isHostLanAccessLoading: boolean;
+	onHostLanAccessChange: (enabled: boolean) => void;
 };
 
 type LocalBranch = {
@@ -1505,6 +1508,8 @@ export function RepoSidebar({
 	isSimulatorMode,
 	hostLanAccessEnabled,
 	lanListenUrl,
+	isHostLanAccessLoading,
+	onHostLanAccessChange,
 }: RepoSidebarProperties) {
 	const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
 	const [isAddRepoOpen, setIsAddRepoOpen] = useState(false);
@@ -1843,6 +1848,17 @@ export function RepoSidebar({
 							onClick={() => setIsLanUrlDialogOpen(false)}
 						>
 							Close
+						</Button>
+						<Button
+							variant="destructive"
+							onClick={() => {
+								onHostLanAccessChange(false);
+								setIsLanUrlDialogOpen(false);
+							}}
+							disabled={isHostLanAccessLoading}
+						>
+							<Square className="size-4" />
+							Stop server
 						</Button>
 						<Button
 							type="button"
