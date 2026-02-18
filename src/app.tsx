@@ -79,6 +79,14 @@ type AgentStreamRecord = {
 	text?: string;
 };
 
+type ToolCallLifecycleRecord = {
+	type: 'tool_call';
+	subtype?: string;
+	tool_call?: {
+		editToolCall?: {args?: {path?: string}};
+	};
+};
+
 type HostAccessSettings = {
 	allowLanAccess: boolean;
 };
@@ -166,14 +174,13 @@ function parseAgentConversationLine(
 
 		if (record.type === 'tool_call' && record.subtype === 'started') {
 			const command = record.tool_call?.shellToolCall?.args?.command;
-			const path = record.tool_call?.editToolCall?.args?.path;
 			if (command) return {role: 'tool', text: `Running: ${command}`};
-			if (path) return {role: 'tool', text: `Editing: ${path}`};
+			if (record.tool_call?.editToolCall?.args?.path) return null;
 			return {role: 'tool', text: 'Tool call started'};
 		}
 
 		if (record.type === 'tool_call' && record.subtype === 'completed') {
-			return {role: 'tool', text: 'Tool call completed'};
+			return null;
 		}
 
 		if (record.type === 'result') {
@@ -192,6 +199,25 @@ function parseAgentStreamRecord(rawLine: string): AgentStreamRecord | null {
 		const data: unknown = JSON.parse(rawLine);
 		if (!data || typeof data !== 'object') return null;
 		return data as AgentStreamRecord;
+	} catch {
+		return null;
+	}
+}
+
+function parseEditToolCallLifecycle(rawLine: string) {
+	try {
+		const data: unknown = JSON.parse(rawLine);
+		if (!data || typeof data !== 'object') return null;
+		const record = data as ToolCallLifecycleRecord;
+		if (record.type !== 'tool_call') return null;
+		const path = record.tool_call?.editToolCall?.args?.path?.trim();
+		if (record.subtype === 'started' && path) {
+			return {event: 'started' as const, path};
+		}
+		if (record.subtype === 'completed') {
+			return {event: 'completed' as const, path: path || null};
+		}
+		return null;
 	} catch {
 		return null;
 	}
@@ -292,6 +318,7 @@ function App() {
 	const agentsRequestIdReference = useRef(0);
 	const branchesRequestIdReference = useRef(0);
 	const thinkingMessageIdByAgentReference = useRef<Record<number, string>>({});
+	const pendingEditedPathByAgentReference = useRef<Record<number, string>>({});
 	const isRuntimeAuthorized = isTauriRuntime || hostAuthState === 'authorized';
 
 	const authenticateHostToken = useCallback(async (token: string) => {
@@ -644,6 +671,7 @@ function App() {
 			setAgentMessagesById({});
 			setAgentLogsById({});
 			thinkingMessageIdByAgentReference.current = {};
+			pendingEditedPathByAgentReference.current = {};
 			return;
 		}
 
@@ -896,6 +924,26 @@ function App() {
 					}
 					return;
 				}
+				const editToolCall = parseEditToolCallLifecycle(payload.line);
+				if (editToolCall?.event === 'started') {
+					pendingEditedPathByAgentReference.current[agentId] =
+						editToolCall.path;
+					return;
+				}
+				if (editToolCall?.event === 'completed') {
+					const editedPath =
+						editToolCall.path ??
+						pendingEditedPathByAgentReference.current[agentId] ??
+						null;
+					delete pendingEditedPathByAgentReference.current[agentId];
+					if (editedPath) {
+						appendAgentMessage(agentId, {
+							role: 'tool',
+							text: `Edited: ${editedPath}`,
+						});
+						return;
+					}
+				}
 				finalizeThinkingMessage(agentId);
 				const parsed = parseAgentConversationLine(payload.line);
 				if (parsed) appendAgentMessage(agentId, parsed);
@@ -930,6 +978,7 @@ function App() {
 						? 'Agent run completed.'
 						: 'Agent run stopped or failed.',
 				});
+				delete pendingEditedPathByAgentReference.current[agentId];
 				setRunningAgentIds(previous => previous.filter(id => id !== agentId));
 			},
 		);
@@ -1062,6 +1111,7 @@ function App() {
 				});
 				setRunningAgentIds(previous => previous.filter(id => id !== agent.id));
 				delete thinkingMessageIdByAgentReference.current[agent.id];
+				delete pendingEditedPathByAgentReference.current[agent.id];
 				toast.success(`Deleted agent "${agent.name}"`);
 			} catch (error) {
 				toast.error(String(error));
