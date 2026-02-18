@@ -5,6 +5,8 @@ import type {Agent, AgentConversationEntry} from '@/lib/types';
 import {cn} from '@/lib/utils';
 import {
 	Bot,
+	Check,
+	Copy,
 	LoaderCircle,
 	MessageSquareText,
 	Play,
@@ -13,6 +15,7 @@ import {
 	UserRound,
 	Wrench,
 } from 'lucide-react';
+import {useState, type ReactNode} from 'react';
 
 type RepoAgentsViewProperties = {
 	selectedAgent: Agent | null;
@@ -26,6 +29,184 @@ type RepoAgentsViewProperties = {
 	onRunPrompt: () => void;
 	onStopRun: () => void;
 };
+
+type MessageSegment =
+	| {type: 'text'; content: string}
+	| {type: 'code'; language: string; content: string};
+
+const FENCED_CODE_BLOCK_REGEXP = /```([a-zA-Z0-9_-]+)?\n?([\s\S]*?)```/g;
+const COMMAND_LANGUAGES = new Set([
+	'bash',
+	'sh',
+	'shell',
+	'zsh',
+	'fish',
+	'cmd',
+	'powershell',
+	'pwsh',
+]);
+
+function parseMessageSegments(text: string): MessageSegment[] {
+	const segments: MessageSegment[] = [];
+	let lastIndex = 0;
+	for (const match of text.matchAll(FENCED_CODE_BLOCK_REGEXP)) {
+		const index = match.index ?? 0;
+		if (index > lastIndex) {
+			segments.push({
+				type: 'text',
+				content: text.slice(lastIndex, index),
+			});
+		}
+		segments.push({
+			type: 'code',
+			language: (match[1] ?? '').trim(),
+			content: (match[2] ?? '').replace(/\n$/, ''),
+		});
+		lastIndex = index + match[0].length;
+	}
+	if (lastIndex < text.length) {
+		segments.push({
+			type: 'text',
+			content: text.slice(lastIndex),
+		});
+	}
+	return segments.length > 0 ? segments : [{type: 'text', content: text}];
+}
+
+function renderInlineMarkdown(text: string, keyPrefix: string) {
+	const parts: ReactNode[] = [];
+	const regexp = /`([^`\n]+)`/g;
+	let lastIndex = 0;
+	let matchIndex = 0;
+	for (const match of text.matchAll(regexp)) {
+		const index = match.index ?? 0;
+		if (index > lastIndex) {
+			parts.push(text.slice(lastIndex, index));
+		}
+		parts.push(
+			<code
+				key={`${keyPrefix}-inline-${matchIndex}`}
+				className="rounded bg-muted/70 px-1.5 py-0.5 font-mono text-[0.92em]"
+			>
+				{match[1]}
+			</code>,
+		);
+		lastIndex = index + match[0].length;
+		matchIndex += 1;
+	}
+	if (lastIndex < text.length) {
+		parts.push(text.slice(lastIndex));
+	}
+	return parts;
+}
+
+function MessageCodeBlock({
+	language,
+	content,
+}: {
+	language: string;
+	content: string;
+}) {
+	const [copied, setCopied] = useState(false);
+	const normalizedLanguage = language.toLowerCase();
+	const isCommand = COMMAND_LANGUAGES.has(normalizedLanguage);
+
+	async function handleCopy() {
+		try {
+			await navigator.clipboard.writeText(content);
+			setCopied(true);
+			setTimeout(() => {
+				setCopied(false);
+			}, 1500);
+		} catch {
+			// Ignore clipboard failures in restricted environments.
+		}
+	}
+
+	return (
+		<div className="relative overflow-hidden rounded-lg border border-border/70 bg-background/75">
+			<div className="flex items-center justify-between gap-2 border-b border-border/70 bg-muted/35 px-2.5 py-1.5">
+				<p className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
+					{isCommand ? 'Command' : language || 'Code'}
+				</p>
+				<button
+					type="button"
+					onClick={() => void handleCopy()}
+					className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+					aria-label={isCommand ? 'Copy command' : 'Copy code'}
+					title={isCommand ? 'Copy command' : 'Copy code'}
+				>
+					{copied ? (
+						<>
+							<Check className="size-3.5" />
+							Copied
+						</>
+					) : (
+						<>
+							<Copy className="size-3.5" />
+							Copy
+						</>
+					)}
+				</button>
+			</div>
+			<pre className="overflow-x-auto p-2.5 font-mono text-xs leading-relaxed whitespace-pre">
+				<code>{content}</code>
+			</pre>
+		</div>
+	);
+}
+
+function MessageContent({text}: {text: string}) {
+	const segments = parseMessageSegments(text);
+
+	return (
+		<div className="space-y-2">
+			{segments.flatMap((segment, segmentIndex) => {
+				if (segment.type === 'code') {
+					return [
+						<MessageCodeBlock
+							key={`${segment.language}-${segmentIndex}-${segment.content.slice(0, 24)}`}
+							language={segment.language}
+							content={segment.content}
+						/>,
+					];
+				}
+
+				const paragraphs = segment.content
+					.split(/\n{2,}/)
+					.map(entry => entry.trim())
+					.filter(Boolean);
+				if (paragraphs.length === 0) return [];
+
+				return [
+					<div key={`text-${segmentIndex}`} className="space-y-2">
+						{paragraphs.map((paragraph, paragraphIndex) => {
+							const lines = paragraph.split('\n');
+							return (
+								<p
+									key={`paragraph-${segmentIndex}-${paragraphIndex}`}
+									className="leading-relaxed whitespace-pre-wrap"
+								>
+									{lines.map((line, lineIndex) => (
+										<span
+											key={`line-${segmentIndex}-${paragraphIndex}-${lineIndex}`}
+										>
+											{renderInlineMarkdown(
+												line,
+												`${segmentIndex}-${paragraphIndex}-${lineIndex}`,
+											)}
+											{lineIndex < lines.length - 1 && <br />}
+										</span>
+									))}
+								</p>
+							);
+						})}
+					</div>,
+				];
+			})}
+		</div>
+	);
+}
 
 export function RepoAgentsView({
 	selectedAgent,
@@ -191,9 +372,7 @@ export function RepoAgentsView({
 													</span>
 												)}
 											</p>
-											<p className="leading-relaxed whitespace-pre-wrap">
-												{message.text}
-											</p>
+											<MessageContent text={message.text} />
 										</div>
 									</div>
 								))
