@@ -88,10 +88,29 @@ function isMacOS() {
 const SHORTCUT_MODIFIER_LABEL = isMacOS() ? 'Cmd' : 'Ctrl';
 const SIMULATOR_MODE_STORAGE_KEY = 'symphony:simulator-mode';
 const RAW_LOGS_STORAGE_KEY = 'symphony:raw-logs';
+const ACCESS_TOKEN_QUERY_PARAM = 'access_token';
 
 function randomRunId() {
 	if ('randomUUID' in crypto) return crypto.randomUUID();
 	return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function getAccessTokenFromQueryParameter() {
+	if (globalThis.window === undefined) return null;
+	const searchParameters = new URLSearchParams(
+		globalThis.window.location.search,
+	);
+	const token = searchParameters.get(ACCESS_TOKEN_QUERY_PARAM)?.trim();
+	if (!token) return null;
+	return token;
+}
+
+function removeAccessTokenFromQueryParameter() {
+	if (globalThis.window === undefined) return;
+	const url = new URL(globalThis.window.location.href);
+	if (!url.searchParams.has(ACCESS_TOKEN_QUERY_PARAM)) return;
+	url.searchParams.delete(ACCESS_TOKEN_QUERY_PARAM);
+	globalThis.window.history.replaceState({}, document.title, url.toString());
 }
 
 function parseAgentConversationLine(
@@ -494,13 +513,22 @@ function App() {
 
 	useEffect(() => {
 		if (isTauriRuntime) return;
+		const queryToken = getAccessTokenFromQueryParameter();
 		const savedToken = getWebAuthToken();
-		if (!savedToken) {
+		const startupToken = queryToken ?? savedToken;
+		if (queryToken) {
+			setHostAuthTokenInput(queryToken);
+		}
+		if (!startupToken) {
 			setHostAuthState('unauthorized');
 			return;
 		}
 		setHostAuthState('checking');
-		void authenticateHostToken(savedToken);
+		void authenticateHostToken(startupToken).then(isAuthenticated => {
+			if (isAuthenticated && queryToken) {
+				removeAccessTokenFromQueryParameter();
+			}
+		});
 	}, [authenticateHostToken]);
 
 	useEffect(() => {
