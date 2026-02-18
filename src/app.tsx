@@ -246,6 +246,16 @@ function parseEditToolCallLifecycle(rawLine: string) {
 	}
 }
 
+function normalizeEditedFilePath(rawPath: string) {
+	const trimmedPath = rawPath.trim().replaceAll(/^['"`]|['"`]$/g, '');
+	if (!trimmedPath) return '';
+	const hasWindowsDrivePrefix = /^[a-zA-Z]:[\\/]/.test(trimmedPath);
+	const hasWindowsUncPrefix = trimmedPath.startsWith('\\\\');
+	const usesWindowsStyle = hasWindowsDrivePrefix || hasWindowsUncPrefix;
+	if (usesWindowsStyle) return trimmedPath.replaceAll('/', '\\');
+	return trimmedPath.replaceAll('\\', '/');
+}
+
 async function openRemoteInBrowser(remoteInfo: RemoteInfo) {
 	try {
 		await openUrl(remoteInfo.url);
@@ -346,6 +356,27 @@ function App() {
 	const thinkingMessageIdByAgentReference = useRef<Record<number, string>>({});
 	const pendingEditedPathByAgentReference = useRef<Record<number, string>>({});
 	const isRuntimeAuthorized = isTauriRuntime || hostAuthState === 'authorized';
+
+	const openAgentMessageFile = useCallback(
+		async (path: string) => {
+			const normalizedPath = normalizeEditedFilePath(path);
+			if (!normalizedPath) return;
+			const isAbsolutePath =
+				normalizedPath.startsWith('/') ||
+				/^[a-zA-Z]:[\\/]/.test(normalizedPath) ||
+				normalizedPath.startsWith('\\\\');
+			const resolvedPath =
+				isAbsolutePath || !selectedRepo
+					? normalizedPath
+					: `${selectedRepo.path.replace(/[\\/]+$/, '')}/${normalizedPath.replace(/^[\\/]+/, '')}`;
+			try {
+				await openPath(resolvedPath);
+			} catch (error) {
+				toast.error(String(error));
+			}
+		},
+		[selectedRepo],
+	);
 
 	const authenticateHostToken = useCallback(async (token: string) => {
 		if (isTauriRuntime) return true;
@@ -974,9 +1005,10 @@ function App() {
 						null;
 					delete pendingEditedPathByAgentReference.current[agentId];
 					if (editedPath) {
+						const normalizedPath = normalizeEditedFilePath(editedPath);
 						appendAgentMessage(agentId, {
 							role: 'tool',
-							text: `Edited: ${editedPath}`,
+							text: `Edited ${normalizedPath}.`,
 						});
 						return;
 					}
@@ -1423,6 +1455,7 @@ function App() {
 								logs={selectedAgentLogs}
 								isRunning={selectedAgentIsRunning}
 								showRawLogs={showRawLogs}
+								onOpenEditedFile={path => void openAgentMessageFile(path)}
 								onPromptChange={setAgentPrompt}
 								onRunPrompt={() => void runPromptOnAgent()}
 								onStopRun={() => void stopAgentRun()}

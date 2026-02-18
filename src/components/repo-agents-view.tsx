@@ -7,6 +7,7 @@ import {
 	Bot,
 	Check,
 	Copy,
+	ExternalLink,
 	LoaderCircle,
 	MessageSquareText,
 	Play,
@@ -25,6 +26,7 @@ type RepoAgentsViewProperties = {
 	logs: string[];
 	isRunning: boolean;
 	showRawLogs: boolean;
+	onOpenEditedFile?: (path: string) => void;
 	onPromptChange: (prompt: string) => void;
 	onRunPrompt: () => void;
 	onStopRun: () => void;
@@ -216,6 +218,7 @@ export function RepoAgentsView({
 	logs,
 	isRunning,
 	showRawLogs,
+	onOpenEditedFile,
 	onPromptChange,
 	onRunPrompt,
 	onStopRun,
@@ -372,7 +375,31 @@ export function RepoAgentsView({
 													</span>
 												)}
 											</p>
-											<MessageContent text={message.text} />
+											{(() => {
+												const editedFilePath =
+													message.role === 'tool'
+														? parseEditedFileMessage(message.text)
+														: undefined;
+												if (!editedFilePath) {
+													return <MessageContent text={message.text} />;
+												}
+												return (
+													<p className="leading-relaxed">
+														Edited{' '}
+														<button
+															type="button"
+															onClick={() => {
+																onOpenEditedFile?.(editedFilePath);
+															}}
+															className="inline-flex items-center gap-1 rounded bg-muted/65 px-1.5 py-0.5 font-mono text-[0.92em] underline decoration-dotted underline-offset-2 transition-colors hover:bg-muted"
+														>
+															<code>{editedFilePath}</code>
+															<ExternalLink className="size-3.5 shrink-0" />
+														</button>
+														.
+													</p>
+												);
+											})()}
 										</div>
 									</div>
 								))
@@ -454,4 +481,12 @@ export function RepoAgentsView({
 			</div>
 		</div>
 	);
+}
+function parseEditedFileMessage(text: string) {
+	const trimmedText = text.trim();
+	const editedMatch =
+		/^Edited\s+(.+?)\.$/.exec(trimmedText) ??
+		/^Edited:\s+(.+)$/.exec(trimmedText);
+	if (!editedMatch?.[1]) return '';
+	return editedMatch[1].trim();
 }
