@@ -14,6 +14,7 @@ import {
 	Play,
 	Square,
 	TerminalSquare,
+	Trash2,
 	UserRound,
 	Wrench,
 } from 'lucide-react';
@@ -44,6 +45,7 @@ type RepoAgentsViewProperties = {
 	onPromptChange: (prompt: string) => void;
 	onRunPrompt: () => void;
 	onStopRun: () => void;
+	onClearChat: () => void;
 };
 
 const COMMAND_LANGUAGES = new Set([
@@ -265,6 +267,7 @@ export function RepoAgentsView({
 	onPromptChange,
 	onRunPrompt,
 	onStopRun,
+	onClearChat,
 }: RepoAgentsViewProperties) {
 	const messageCount = messages.length;
 	const messagesScrollReference = useRef<HTMLDivElement>(null);
@@ -531,6 +534,17 @@ export function RepoAgentsView({
 									Enter to run, Shift+Enter for a new line.
 								</p>
 								<div className="flex items-center gap-2">
+									<Button
+										variant="outline"
+										onClick={onClearChat}
+										disabled={
+											!selectedAgent || isRunning || messages.length === 0
+										}
+										className="gap-1.5"
+									>
+										<Trash2 className="size-3.5" />
+										Clear chat
+									</Button>
 									<Button
 										variant="outline"
 										onClick={onStopRun}

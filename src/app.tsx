@@ -1237,6 +1237,21 @@ function App() {
 		}
 	}, [selectedAgentId]);
 
+	const clearSelectedAgentChat = useCallback(() => {
+		if (!selectedAgentId) return;
+		setAgentMessagesById(previous => ({
+			...previous,
+			[selectedAgentId]: [],
+		}));
+		setAgentLogsById(previous => ({
+			...previous,
+			[selectedAgentId]: [],
+		}));
+		delete thinkingMessageIdByAgentReference.current[selectedAgentId];
+		delete pendingEditedPathByAgentReference.current[selectedAgentId];
+		toast.success('Chat cleared');
+	}, [selectedAgentId]);
+
 	async function handleHostLoginSubmit(event: FormEvent) {
 		event.preventDefault();
 		setHostAuthState('checking');
@@ -1469,6 +1484,7 @@ function App() {
 									onPromptChange={setAgentPrompt}
 									onRunPrompt={() => void runPromptOnAgent()}
 									onStopRun={() => void stopAgentRun()}
+									onClearChat={clearSelectedAgentChat}
 								/>
 							) : activeRepoViewTab === 'changed-files' ? (
 								<ChangedFilesView
