@@ -188,6 +188,36 @@ function handleDropZoneDragOver(event: React.DragEvent) {
 	event.dataTransfer.dropEffect = 'move';
 }
 
+function getSuggestedAgentName(agents: Agent[]) {
+	const usedNumbers = new Set<number>();
+	const normalizedNames = new Set(
+		agents.map(agent => agent.name.trim().toLowerCase()),
+	);
+	const numberedAgentPattern = /^agent\s+(\d+)$/i;
+
+	for (const agent of agents) {
+		const match = agent.name.trim().match(numberedAgentPattern);
+		if (!match) continue;
+		const number = Number(match[1]);
+		if (Number.isInteger(number) && number > 0) {
+			usedNumbers.add(number);
+		}
+	}
+
+	let candidateNumber = 1;
+	while (usedNumbers.has(candidateNumber)) {
+		candidateNumber += 1;
+	}
+
+	let candidateName = `Agent ${candidateNumber}`;
+	while (normalizedNames.has(candidateName.toLowerCase())) {
+		candidateNumber += 1;
+		candidateName = `Agent ${candidateNumber}`;
+	}
+
+	return candidateName;
+}
+
 // --- Draggable Repo Item with Context Menu ---
 
 function DraggableRepoItem({
@@ -607,9 +637,15 @@ function DraggableRepoItem({
 									variant="ghost"
 									size="icon"
 									className="size-5"
-									onClick={() =>
-										setIsCreatingInlineAgent(previous => !previous)
-									}
+									onClick={() => {
+										setIsCreatingInlineAgent(previous => {
+											const isOpening = !previous;
+											if (isOpening && newAgentName.trim().length === 0) {
+												setNewAgentName(getSuggestedAgentName(agents));
+											}
+											return isOpening;
+										});
+									}}
 									title="Create agent"
 								>
 									<Plus className="size-3.5" />
@@ -620,6 +656,7 @@ function DraggableRepoItem({
 							<SidebarMenuSubItem>
 								<div className="flex items-center gap-1.5 px-2 py-1">
 									<Input
+										autoFocus
 										value={newAgentName}
 										onChange={event => setNewAgentName(event.target.value)}
 										placeholder="Agent name"
