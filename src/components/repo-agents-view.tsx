@@ -17,7 +17,18 @@ import {
 	UserRound,
 	Wrench,
 } from 'lucide-react';
-import {useCallback, useEffect, useRef, useState, type ReactNode} from 'react';
+import {
+	Children,
+	isValidElement,
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+	type ComponentPropsWithoutRef,
+	type ReactNode,
+} from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 const SCROLL_BOTTOM_THRESHOLD = 60;
 
@@ -35,11 +46,6 @@ type RepoAgentsViewProperties = {
 	onStopRun: () => void;
 };
 
-type MessageSegment =
-	| {type: 'text'; content: string}
-	| {type: 'code'; language: string; content: string};
-
-const FENCED_CODE_BLOCK_REGEXP = /```([a-zA-Z0-9_-]+)?\n?([\s\S]*?)```/g;
 const COMMAND_LANGUAGES = new Set([
 	'bash',
 	'sh',
@@ -51,58 +57,23 @@ const COMMAND_LANGUAGES = new Set([
 	'pwsh',
 ]);
 
-function parseMessageSegments(text: string): MessageSegment[] {
-	const segments: MessageSegment[] = [];
-	let lastIndex = 0;
-	for (const match of text.matchAll(FENCED_CODE_BLOCK_REGEXP)) {
-		const index = match.index ?? 0;
-		if (index > lastIndex) {
-			segments.push({
-				type: 'text',
-				content: text.slice(lastIndex, index),
-			});
-		}
-		segments.push({
-			type: 'code',
-			language: (match[1] ?? '').trim(),
-			content: (match[2] ?? '').replace(/\n$/, ''),
-		});
-		lastIndex = index + match[0].length;
-	}
-	if (lastIndex < text.length) {
-		segments.push({
-			type: 'text',
-			content: text.slice(lastIndex),
-		});
-	}
-	return segments.length > 0 ? segments : [{type: 'text', content: text}];
-}
-
-function renderInlineMarkdown(text: string, keyPrefix: string) {
-	const parts: ReactNode[] = [];
-	const regexp = /`([^`\n]+)`/g;
-	let lastIndex = 0;
-	let matchIndex = 0;
-	for (const match of text.matchAll(regexp)) {
-		const index = match.index ?? 0;
-		if (index > lastIndex) {
-			parts.push(text.slice(lastIndex, index));
-		}
-		parts.push(
-			<code
-				key={`${keyPrefix}-inline-${matchIndex}`}
-				className="rounded bg-muted/70 px-1.5 py-0.5 font-mono text-[0.92em]"
-			>
-				{match[1]}
-			</code>,
-		);
-		lastIndex = index + match[0].length;
-		matchIndex += 1;
-	}
-	if (lastIndex < text.length) {
-		parts.push(text.slice(lastIndex));
-	}
-	return parts;
+function readCodeNode(
+	children: ReactNode,
+): {language: string; content: string} | undefined {
+	const [firstChild] = Children.toArray(children);
+	if (!isValidElement(firstChild) || firstChild.type !== 'code')
+		return undefined;
+	const properties = firstChild.props as {
+		className?: string;
+		children?: ReactNode;
+	};
+	const languageMatch = /language-([a-zA-Z0-9_-]+)/.exec(
+		properties.className ?? '',
+	);
+	const content = Children.toArray(properties.children)
+		.join('')
+		.replace(/\n$/, '');
+	return {language: languageMatch?.[1] ?? '', content};
 }
 
 function MessageCodeBlock({
@@ -162,53 +133,122 @@ function MessageCodeBlock({
 }
 
 function MessageContent({text}: {text: string}) {
-	const segments = parseMessageSegments(text);
-
 	return (
-		<div className="space-y-2">
-			{segments.flatMap((segment, segmentIndex) => {
-				if (segment.type === 'code') {
-					return [
-						<MessageCodeBlock
-							key={`${segment.language}-${segmentIndex}-${segment.content.slice(0, 24)}`}
-							language={segment.language}
-							content={segment.content}
-						/>,
-					];
-				}
-
-				const paragraphs = segment.content
-					.split(/\n{2,}/)
-					.map(entry => entry.trim())
-					.filter(Boolean);
-				if (paragraphs.length === 0) return [];
-
-				return [
-					<div key={`text-${segmentIndex}`} className="space-y-2">
-						{paragraphs.map((paragraph, paragraphIndex) => {
-							const lines = paragraph.split('\n');
+		<div className="space-y-1">
+			<ReactMarkdown
+				remarkPlugins={[remarkGfm]}
+				components={{
+					h1: properties => (
+						<h1
+							className="mt-4 text-lg font-semibold tracking-tight first:mt-0"
+							{...properties}
+						/>
+					),
+					h2: properties => (
+						<h2
+							className="mt-4 text-base font-semibold tracking-tight first:mt-0"
+							{...properties}
+						/>
+					),
+					h3: properties => (
+						<h3
+							className="mt-3 text-sm font-semibold tracking-tight first:mt-0"
+							{...properties}
+						/>
+					),
+					p: properties => (
+						<p
+							className="mt-2 leading-relaxed whitespace-pre-wrap first:mt-0"
+							{...properties}
+						/>
+					),
+					ul: properties => (
+						<ul
+							className="mt-2 ml-5 list-disc space-y-1 first:mt-0"
+							{...properties}
+						/>
+					),
+					ol: properties => (
+						<ol
+							className="mt-2 ml-5 list-decimal space-y-1 first:mt-0"
+							{...properties}
+						/>
+					),
+					li: properties => (
+						<li className="pl-1 leading-relaxed" {...properties} />
+					),
+					blockquote: properties => (
+						<blockquote
+							className="mt-2 border-l-2 border-border/80 pl-3 text-muted-foreground italic first:mt-0"
+							{...properties}
+						/>
+					),
+					hr: properties => (
+						<hr className="my-3 border-border/70" {...properties} />
+					),
+					a: properties => (
+						<a
+							className="text-primary underline decoration-primary/50 underline-offset-2 transition-colors hover:text-primary/80"
+							target="_blank"
+							rel="noreferrer"
+							{...properties}
+						/>
+					),
+					table: properties => (
+						<div className="mt-2 overflow-x-auto first:mt-0">
+							<table
+								className="w-full min-w-max border-collapse text-xs"
+								{...properties}
+							/>
+						</div>
+					),
+					th: properties => (
+						<th
+							className="border border-border/70 bg-muted/30 px-2 py-1 text-left font-semibold"
+							{...properties}
+						/>
+					),
+					td: properties => (
+						<td
+							className="border border-border/70 px-2 py-1 align-top"
+							{...properties}
+						/>
+					),
+					pre: properties => {
+						const parsed = readCodeNode(properties.children);
+						if (!parsed) {
 							return (
-								<p
-									key={`paragraph-${segmentIndex}-${paragraphIndex}`}
-									className="leading-relaxed whitespace-pre-wrap"
-								>
-									{lines.map((line, lineIndex) => (
-										<span
-											key={`line-${segmentIndex}-${paragraphIndex}-${lineIndex}`}
-										>
-											{renderInlineMarkdown(
-												line,
-												`${segmentIndex}-${paragraphIndex}-${lineIndex}`,
-											)}
-											{lineIndex < lines.length - 1 && <br />}
-										</span>
-									))}
-								</p>
+								<pre
+									className="mt-2 overflow-x-auto rounded-lg border border-border/70 p-2.5"
+									{...properties}
+								/>
 							);
-						})}
-					</div>,
-				];
-			})}
+						}
+						return (
+							<MessageCodeBlock
+								language={parsed.language}
+								content={parsed.content}
+							/>
+						);
+					},
+					code: ({
+						className,
+						...properties
+					}: ComponentPropsWithoutRef<'code'>) => {
+						if (className?.includes('language-')) {
+							return <code className={className} {...properties} />;
+						}
+						return (
+							<code
+								className="rounded bg-muted/70 px-1.5 py-0.5 font-mono text-[0.92em]"
+								{...properties}
+							/>
+						);
+					},
+				}}
+			>
+				{text}
+			</ReactMarkdown>
 		</div>
 	);
 }
