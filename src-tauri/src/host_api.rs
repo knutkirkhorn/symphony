@@ -83,13 +83,19 @@ struct HttpBridgeAppState {
 pub struct HostAccessState {
     allow_lan_access: Arc<AtomicBool>,
     settings_path: Option<PathBuf>,
+    auth_token: String,
 }
 
 impl HostAccessState {
-    pub fn new(initial_allow_lan_access: bool, settings_path: Option<PathBuf>) -> Self {
+    pub fn new(
+        initial_allow_lan_access: bool,
+        settings_path: Option<PathBuf>,
+        auth_token: String,
+    ) -> Self {
         Self {
             allow_lan_access: Arc::new(AtomicBool::new(initial_allow_lan_access)),
             settings_path,
+            auth_token,
         }
     }
 }
@@ -322,6 +328,21 @@ fn read_web_port() -> u16 {
         .unwrap_or(1420)
 }
 
+fn get_or_generate_auth_token() -> String {
+    std::env::var("SYMPHONY_HOST_TOKEN").unwrap_or_else(|_| {
+        let generated: String = rand::rng()
+            .sample_iter(Alphanumeric)
+            .take(40)
+            .map(char::from)
+            .collect();
+        println!(
+            "SYMPHONY_HOST_TOKEN was not set. Generated session token: {}",
+            generated
+        );
+        generated
+    })
+}
+
 fn host_access_settings_path() -> Option<PathBuf> {
     let base_directory = dirs::data_local_dir()?;
     Some(
@@ -367,7 +388,8 @@ pub fn create_host_access_state() -> HostAccessState {
         })
         .unwrap_or(persisted_allow_lan_access);
 
-    HostAccessState::new(initial_allow_lan_access, settings_path)
+    let auth_token = get_or_generate_auth_token();
+    HostAccessState::new(initial_allow_lan_access, settings_path, auth_token)
 }
 
 fn detect_local_ip_address() -> Option<IpAddr> {
@@ -440,10 +462,10 @@ pub fn get_lan_listen_url(state: TauriState<'_, HostAccessState>) -> Option<Stri
         return None;
     }
     let port = read_web_port();
-    let url = detect_local_ip_address()
+    let base_url = detect_local_ip_address()
         .map(|ip| format!("http://{}:{}", ip, port))
         .unwrap_or_else(|| format!("http://localhost:{}", port));
-    Some(url)
+    Some(format!("{}?access_token={}", base_url, state.auth_token))
 }
 
 fn invoke_dispatch(
@@ -814,18 +836,7 @@ pub fn start_host_bridge(
             return;
         }
     };
-    let auth_token = std::env::var("SYMPHONY_HOST_TOKEN").unwrap_or_else(|_| {
-        let generated: String = rand::rng()
-            .sample_iter(Alphanumeric)
-            .take(40)
-            .map(char::from)
-            .collect();
-        println!(
-            "SYMPHONY_HOST_TOKEN was not set. Generated session token: {}",
-            generated
-        );
-        generated
-    });
+    let auth_token = host_access_state.auth_token.clone();
     print_access_qr_code(&auth_token);
     println!(
         "Symphony LAN access is {}",
