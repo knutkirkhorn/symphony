@@ -243,6 +243,7 @@ function DraggableRepoItem({
 	onPointerDragStart,
 	onPullRepo,
 	onCheckRepoUpdates,
+	isFiltering,
 }: {
 	repo: Repo;
 	syncStatus?: RepoSyncStatus;
@@ -266,6 +267,7 @@ function DraggableRepoItem({
 	onPointerDragStart: (event: React.PointerEvent, repo: Repo) => void;
 	onPullRepo: (repo: Repo) => Promise<void>;
 	onCheckRepoUpdates: () => void;
+	isFiltering: boolean;
 }) {
 	// Groups the repo can be moved to (exclude the one it's already in)
 	const moveTargets = groups.filter(g => g.id !== repo.group_id);
@@ -421,8 +423,8 @@ function DraggableRepoItem({
 	}
 
 	useEffect(() => {
-		if (isActive) setIsAgentsOpen(true);
-	}, [isActive]);
+		if (isActive || (isFiltering && hasAgents)) setIsAgentsOpen(true);
+	}, [hasAgents, isActive, isFiltering]);
 
 	async function handleRenameAgent(event: FormEvent) {
 		event.preventDefault();
@@ -804,7 +806,7 @@ function DraggableRepoItem({
 						) : (
 							<SidebarMenuSubItem>
 								<p className="px-2 py-1 text-xs text-sidebar-foreground/60">
-									No agents yet
+									{isFiltering ? 'No matching agents' : 'No agents yet'}
 								</p>
 							</SidebarMenuSubItem>
 						)}
@@ -1163,6 +1165,7 @@ function GroupSection({
 	onPointerDragStart,
 	onPullRepo,
 	onCheckRepoUpdates,
+	searchQuery,
 }: {
 	group: Group;
 	repos: Repo[];
@@ -1190,6 +1193,7 @@ function GroupSection({
 	onPointerDragStart: (event: React.PointerEvent, repo: Repo) => void;
 	onPullRepo: (repo: Repo) => Promise<void>;
 	onCheckRepoUpdates: () => void;
+	searchQuery: string;
 }) {
 	const [isOpen, setIsOpen] = useState(true);
 	const [isRenaming, setIsRenaming] = useState(false);
@@ -1238,6 +1242,9 @@ function GroupSection({
 	}, [group.id, onGroupsChange, onReposChange]);
 	const isPointerDragOver =
 		activeDropZone?.type === 'group' && activeDropZone.groupId === group.id;
+
+	const normalizedSearchQuery = searchQuery.trim().toLowerCase();
+	const isFiltering = normalizedSearchQuery.length > 0;
 
 	return (
 		<>
@@ -1306,33 +1313,46 @@ function GroupSection({
 										Drag repos here
 									</p>
 								) : (
-									repos.map(repo => (
-										<DraggableRepoItem
-											key={repo.id}
-											repo={repo}
-											syncStatus={repoSyncStatusById[repo.id]}
-											branch={repoBranchById[repo.id]}
-											isActive={repo.id === selectedRepoId}
-											selectedAgentId={selectedAgentId}
-											runningAgentIds={runningAgentIds}
-											agents={agentsByRepoId[repo.id] ?? []}
-											isAgentsLoading={Boolean(agentsLoadingByRepoId[repo.id])}
-											agentsError={agentsErrorByRepoId[repo.id] ?? null}
-											isCreatingAgentRepoId={isCreatingAgentRepoId}
-											isDeletingAgentId={isDeletingAgentId}
-											isRenamingAgentId={isRenamingAgentId}
-											groups={allGroups}
-											onRepoSelect={onRepoSelect}
-											onAgentSelect={onAgentSelect}
-											onCreateAgent={onCreateAgent}
-											onDeleteAgent={onDeleteAgent}
-											onRenameAgent={onRenameAgent}
-											onReposChange={onReposChange}
-											onPointerDragStart={onPointerDragStart}
-											onPullRepo={onPullRepo}
-											onCheckRepoUpdates={onCheckRepoUpdates}
-										/>
-									))
+									repos.map(repo => {
+										const repoAgents = agentsByRepoId[repo.id] ?? [];
+										const visibleAgents = isFiltering
+											? repoAgents.filter(agent =>
+													agent.name
+														.toLowerCase()
+														.includes(normalizedSearchQuery),
+												)
+											: repoAgents;
+										return (
+											<DraggableRepoItem
+												key={repo.id}
+												repo={repo}
+												syncStatus={repoSyncStatusById[repo.id]}
+												branch={repoBranchById[repo.id]}
+												isActive={repo.id === selectedRepoId}
+												selectedAgentId={selectedAgentId}
+												runningAgentIds={runningAgentIds}
+												agents={visibleAgents}
+												isAgentsLoading={Boolean(
+													agentsLoadingByRepoId[repo.id],
+												)}
+												agentsError={agentsErrorByRepoId[repo.id] ?? null}
+												isCreatingAgentRepoId={isCreatingAgentRepoId}
+												isDeletingAgentId={isDeletingAgentId}
+												isRenamingAgentId={isRenamingAgentId}
+												groups={allGroups}
+												onRepoSelect={onRepoSelect}
+												onAgentSelect={onAgentSelect}
+												onCreateAgent={onCreateAgent}
+												onDeleteAgent={onDeleteAgent}
+												onRenameAgent={onRenameAgent}
+												onReposChange={onReposChange}
+												onPointerDragStart={onPointerDragStart}
+												onPullRepo={onPullRepo}
+												onCheckRepoUpdates={onCheckRepoUpdates}
+												isFiltering={isFiltering}
+											/>
+										);
+									})
 								)}
 							</SidebarMenu>
 						</SidebarGroupContent>
@@ -1428,6 +1448,7 @@ function UngroupedSection({
 	onPointerDragStart,
 	onPullRepo,
 	onCheckRepoUpdates,
+	searchQuery,
 }: {
 	repos: Repo[];
 	groups: Group[];
@@ -1452,6 +1473,7 @@ function UngroupedSection({
 	onPointerDragStart: (event: React.PointerEvent, repo: Repo) => void;
 	onPullRepo: (repo: Repo) => Promise<void>;
 	onCheckRepoUpdates: () => void;
+	searchQuery: string;
 }) {
 	const {isDragOver, handlers: dropHandlers} = useDropZone(
 		async (repoId: number) => {
@@ -1468,6 +1490,9 @@ function UngroupedSection({
 	);
 	const isPointerDragOver = activeDropZone?.type === 'ungrouped';
 
+	const normalizedSearchQuery = searchQuery.trim().toLowerCase();
+	const isFiltering = normalizedSearchQuery.length > 0;
+
 	return (
 		<SidebarGroup
 			{...dropHandlers}
@@ -1481,33 +1506,42 @@ function UngroupedSection({
 			<SidebarGroupLabel>Ungrouped</SidebarGroupLabel>
 			<SidebarGroupContent>
 				<SidebarMenu>
-					{repos.map(repo => (
-						<DraggableRepoItem
-							key={repo.id}
-							repo={repo}
-							syncStatus={repoSyncStatusById[repo.id]}
-							branch={repoBranchById[repo.id]}
-							isActive={repo.id === selectedRepoId}
-							selectedAgentId={selectedAgentId}
-							runningAgentIds={runningAgentIds}
-							agents={agentsByRepoId[repo.id] ?? []}
-							isAgentsLoading={Boolean(agentsLoadingByRepoId[repo.id])}
-							agentsError={agentsErrorByRepoId[repo.id] ?? null}
-							isCreatingAgentRepoId={isCreatingAgentRepoId}
-							isDeletingAgentId={isDeletingAgentId}
-							isRenamingAgentId={isRenamingAgentId}
-							groups={groups}
-							onRepoSelect={onRepoSelect}
-							onAgentSelect={onAgentSelect}
-							onCreateAgent={onCreateAgent}
-							onDeleteAgent={onDeleteAgent}
-							onRenameAgent={onRenameAgent}
-							onReposChange={onReposChange}
-							onPointerDragStart={onPointerDragStart}
-							onPullRepo={onPullRepo}
-							onCheckRepoUpdates={onCheckRepoUpdates}
-						/>
-					))}
+					{repos.map(repo => {
+						const repoAgents = agentsByRepoId[repo.id] ?? [];
+						const visibleAgents = isFiltering
+							? repoAgents.filter(agent =>
+									agent.name.toLowerCase().includes(normalizedSearchQuery),
+								)
+							: repoAgents;
+						return (
+							<DraggableRepoItem
+								key={repo.id}
+								repo={repo}
+								syncStatus={repoSyncStatusById[repo.id]}
+								branch={repoBranchById[repo.id]}
+								isActive={repo.id === selectedRepoId}
+								selectedAgentId={selectedAgentId}
+								runningAgentIds={runningAgentIds}
+								agents={visibleAgents}
+								isAgentsLoading={Boolean(agentsLoadingByRepoId[repo.id])}
+								agentsError={agentsErrorByRepoId[repo.id] ?? null}
+								isCreatingAgentRepoId={isCreatingAgentRepoId}
+								isDeletingAgentId={isDeletingAgentId}
+								isRenamingAgentId={isRenamingAgentId}
+								groups={groups}
+								onRepoSelect={onRepoSelect}
+								onAgentSelect={onAgentSelect}
+								onCreateAgent={onCreateAgent}
+								onDeleteAgent={onDeleteAgent}
+								onRenameAgent={onRenameAgent}
+								onReposChange={onReposChange}
+								onPointerDragStart={onPointerDragStart}
+								onPullRepo={onPullRepo}
+								onCheckRepoUpdates={onCheckRepoUpdates}
+								isFiltering={isFiltering}
+							/>
+						);
+					})}
 				</SidebarMenu>
 			</SidebarGroupContent>
 		</SidebarGroup>
@@ -1557,8 +1591,33 @@ export function RepoSidebar({
 	const [isPointerDragging, setIsPointerDragging] = useState(false);
 	const [isLanUrlDialogOpen, setIsLanUrlDialogOpen] = useState(false);
 	const [lanUrlCopied, setLanUrlCopied] = useState(false);
+	const [repoSearchQuery, setRepoSearchQuery] = useState('');
 
-	const ungroupedRepos = repos.filter(r => r.group_id === null);
+	const normalizedRepoSearchQuery = repoSearchQuery.trim().toLowerCase();
+	const isFiltering = normalizedRepoSearchQuery.length > 0;
+	const visibleRepos = isFiltering
+		? repos.filter(repo => {
+				const repoMatches =
+					repo.name.toLowerCase().includes(normalizedRepoSearchQuery) ||
+					repo.path.toLowerCase().includes(normalizedRepoSearchQuery);
+				if (repoMatches) return true;
+				const repoAgents = agentsByRepoId[repo.id] ?? [];
+				if (
+					repoAgents.some(agent =>
+						agent.name.toLowerCase().includes(normalizedRepoSearchQuery),
+					)
+				) {
+					return true;
+				}
+				return Boolean(agentsLoadingByRepoId[repo.id]);
+			})
+		: repos;
+	const visibleGroups = isFiltering
+		? groups.filter(group =>
+				visibleRepos.some(repo => repo.group_id === group.id),
+			)
+		: groups;
+	const ungroupedRepos = visibleRepos.filter(r => r.group_id === null);
 
 	const handleCreateGroup = useCallback(
 		async (event: FormEvent) => {
@@ -1731,6 +1790,14 @@ export function RepoSidebar({
 						</Tooltip>
 					</div>
 				</div>
+				<div className="mt-2">
+					<Input
+						value={repoSearchQuery}
+						onChange={event => setRepoSearchQuery(event.target.value)}
+						placeholder="Search repositories and agents..."
+						className="h-8"
+					/>
+				</div>
 			</SidebarHeader>
 			<SidebarContent>
 				{/* Plain div instead of ScrollArea to avoid Radix viewport interference with drag events */}
@@ -1738,11 +1805,11 @@ export function RepoSidebar({
 					className={`flex-1 overflow-y-auto ${isPointerDragging ? 'cursor-grabbing' : ''}`}
 				>
 					{/* Group sections */}
-					{groups.map(group => (
+					{visibleGroups.map(group => (
 						<GroupSection
 							key={group.id}
 							group={group}
-							repos={repos.filter(r => r.group_id === group.id)}
+							repos={visibleRepos.filter(r => r.group_id === group.id)}
 							repoSyncStatusById={repoSyncStatusById}
 							repoBranchById={repoBranchById}
 							agentsByRepoId={agentsByRepoId}
@@ -1770,6 +1837,7 @@ export function RepoSidebar({
 							onPointerDragStart={handlePointerDragStart}
 							onPullRepo={onPullRepo}
 							onCheckRepoUpdates={onCheckRepoUpdates}
+							searchQuery={repoSearchQuery}
 						/>
 					))}
 
@@ -1799,7 +1867,13 @@ export function RepoSidebar({
 							onPointerDragStart={handlePointerDragStart}
 							onPullRepo={onPullRepo}
 							onCheckRepoUpdates={onCheckRepoUpdates}
+							searchQuery={repoSearchQuery}
 						/>
+					)}
+					{isFiltering && visibleRepos.length === 0 && (
+						<p className="px-3 py-3 text-xs text-muted-foreground">
+							No repositories or agents match your search
+						</p>
 					)}
 				</div>
 			</SidebarContent>
