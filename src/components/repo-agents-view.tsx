@@ -1,12 +1,24 @@
 import {Button} from '@/components/ui/button';
+import {Input} from '@/components/ui/input';
+import {
+	Popover,
+	PopoverAnchor,
+	PopoverContent,
+} from '@/components/ui/popover';
 import {ScrollArea} from '@/components/ui/scroll-area';
 import {Separator} from '@/components/ui/separator';
-import type {Agent, AgentConversationEntry} from '@/lib/types';
+import {resolveRunModelFromInput} from '@/lib/agent-model';
+import type {
+	Agent,
+	AgentConversationEntry,
+	AgentModelOption,
+} from '@/lib/types';
 import {cn} from '@/lib/utils';
 import {
 	Bot,
 	Check,
 	ChevronDown,
+	ChevronsUpDown,
 	Copy,
 	ExternalLink,
 	LoaderCircle,
@@ -23,6 +35,8 @@ import {
 	isValidElement,
 	useCallback,
 	useEffect,
+	useLayoutEffect,
+	useMemo,
 	useRef,
 	useState,
 	type ComponentPropsWithoutRef,
@@ -32,10 +46,11 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 const SCROLL_BOTTOM_THRESHOLD = 60;
-
 type RepoAgentsViewProperties = {
 	selectedAgent: Agent | null;
 	model: string | null;
+	modelInput: string;
+	modelOptions: AgentModelOption[];
 	prompt: string;
 	messages: AgentConversationEntry[];
 	logs: string[];
@@ -43,6 +58,7 @@ type RepoAgentsViewProperties = {
 	showRawLogs: boolean;
 	onOpenEditedFile?: (path: string) => void;
 	onPromptChange: (prompt: string) => void;
+	onModelInputChange: (model: string) => void;
 	onRunPrompt: () => void;
 	onStopRun: () => void;
 	onClearChat: () => void;
@@ -258,6 +274,8 @@ function MessageContent({text}: {text: string}) {
 export function RepoAgentsView({
 	selectedAgent,
 	model,
+	modelInput,
+	modelOptions,
 	prompt,
 	messages,
 	logs,
@@ -265,6 +283,7 @@ export function RepoAgentsView({
 	showRawLogs,
 	onOpenEditedFile,
 	onPromptChange,
+	onModelInputChange,
 	onRunPrompt,
 	onStopRun,
 	onClearChat,
@@ -272,6 +291,43 @@ export function RepoAgentsView({
 	const messageCount = messages.length;
 	const messagesScrollReference = useRef<HTMLDivElement>(null);
 	const [isAtBottom, setIsAtBottom] = useState(true);
+	const [modelPickerOpen, setModelPickerOpen] = useState(false);
+	const modelRowReference = useRef<HTMLDivElement>(null);
+	const [modelPopoverWidth, setModelPopoverWidth] = useState<
+		number | undefined
+	>();
+
+	const resolvedRunModel = resolveRunModelFromInput(modelInput, modelOptions);
+	const normalizedModelInput = modelInput.trim().toLowerCase();
+	const filteredModelOptions = useMemo(() => {
+		if (!normalizedModelInput) {
+			return modelOptions;
+		}
+		return modelOptions.filter(option => {
+			return (
+				option.name.toLowerCase().includes(normalizedModelInput) ||
+				option.id.toLowerCase().includes(normalizedModelInput)
+			);
+		});
+	}, [modelOptions, normalizedModelInput]);
+
+	useLayoutEffect(() => {
+		const row = modelRowReference.current;
+		if (!row) {
+			return () => {};
+		}
+		function measure() {
+			const element = modelRowReference.current;
+			if (!element) return;
+			setModelPopoverWidth(element.getBoundingClientRect().width);
+		}
+		measure();
+		const observer = new ResizeObserver(measure);
+		observer.observe(row);
+		return () => {
+			observer.disconnect();
+		};
+	}, []);
 
 	const checkAtBottom = useCallback(() => {
 		const element = messagesScrollReference.current;
@@ -508,6 +564,115 @@ export function RepoAgentsView({
 							</div>
 						)}
 						<div className="space-y-2">
+							<div className="space-y-1">
+								<p className="text-[11px] text-muted-foreground">Model</p>
+								<Popover
+									open={modelPickerOpen}
+									onOpenChange={setModelPickerOpen}
+								>
+									<div
+										ref={modelRowReference}
+										className="flex w-full min-w-0 gap-1.5"
+									>
+										<PopoverAnchor asChild>
+											<div className="flex w-full min-w-0 gap-1.5">
+												<Input
+													placeholder="Default model"
+													value={modelInput}
+													onChange={event => {
+														onModelInputChange(event.target.value);
+														setModelPickerOpen(true);
+													}}
+													onFocus={() => {
+														if (selectedAgent && !isRunning) {
+															setModelPickerOpen(true);
+														}
+													}}
+													disabled={!selectedAgent || isRunning}
+													className="min-w-0 flex-1 pr-3"
+													autoComplete="off"
+													spellCheck={false}
+												/>
+												<Button
+													type="button"
+													variant="outline"
+													size="icon"
+													className="shrink-0"
+													disabled={!selectedAgent || isRunning}
+													aria-label="Toggle model suggestions"
+													onMouseDown={event => {
+														event.preventDefault();
+													}}
+													onClick={() => {
+														setModelPickerOpen(true);
+													}}
+												>
+													<ChevronsUpDown className="size-4 opacity-60" />
+												</Button>
+											</div>
+										</PopoverAnchor>
+									</div>
+									<PopoverContent
+										align="start"
+										sideOffset={6}
+										className="max-w-none p-0"
+										style={
+											modelPopoverWidth
+												? {width: modelPopoverWidth}
+												: undefined
+										}
+										onOpenAutoFocus={event => event.preventDefault()}
+									>
+										<ScrollArea className="max-h-64">
+											<div className="flex flex-col gap-px p-1">
+												{modelOptions.length === 0 ? (
+													<p className="px-2 py-3 text-center text-sm text-muted-foreground">
+														No models loaded. Type a model id or run{' '}
+														<code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">
+															agent models
+														</code>{' '}
+														in the CLI.
+													</p>
+												) : filteredModelOptions.length === 0 ? (
+													<p className="px-2 py-3 text-center text-sm text-muted-foreground">
+														No model matches "{modelInput.trim()}".
+													</p>
+												) : (
+													filteredModelOptions.map(option => {
+														const isSelected =
+															option.id === resolvedRunModel.shortName;
+														return (
+															<button
+																key={option.id}
+																type="button"
+																className={cn(
+																	'flex w-full min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5 rounded-md px-2.5 py-2 text-left text-sm transition-colors',
+																	'hover:bg-accent hover:text-accent-foreground',
+																	'focus-visible:bg-accent focus-visible:text-accent-foreground focus-visible:outline-none',
+																	isSelected && 'bg-accent/80',
+																)}
+																onClick={() => {
+																	onModelInputChange(option.id);
+																	setModelPickerOpen(false);
+																}}
+															>
+																<span className="min-w-0 shrink truncate font-medium leading-tight">
+																	{option.name}
+																</span>
+																{option.name === option.id ? undefined : (
+																	<span className="min-w-0 shrink truncate font-mono text-xs leading-tight text-muted-foreground">
+																		{option.id}
+																	</span>
+																)}
+															</button>
+														);
+													})
+												)}
+											</div>
+										</ScrollArea>
+									</PopoverContent>
+								</Popover>
+							</div>
 							<textarea
 								placeholder="Enter prompt for selected agent"
 								value={prompt}

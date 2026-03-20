@@ -2,7 +2,7 @@ use crate::commands::{
     add_repo, clone_repo, commit_working_tree, create_agent, create_group, create_local_branch,
     delete_agent, delete_group, delete_local_branch, get_commit_changes, get_current_branch,
     get_remote_url, get_repo_sync_status, get_repo_working_tree_status, get_working_tree_file_diff,
-    list_agents, list_git_history, list_groups, list_local_branches, list_repos,
+    list_agent_models, list_agents, list_git_history, list_groups, list_local_branches, list_repos,
     list_working_tree_changes, move_repo_to_group, open_in_cursor, open_in_file_manager, pull_repo,
     remove_repo, rename_agent, rename_group, run_repo_agent, stop_repo_agent, switch_branch,
     AgentRuntimeState,
@@ -259,6 +259,7 @@ struct RunRepoAgentArgs {
     run_id: String,
     force_approve: Option<bool>,
     simulate_mode: Option<bool>,
+    model: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -631,6 +632,9 @@ fn invoke_dispatch(
             rename_agent(db, parsed.agent_id, parsed.name)?;
             Ok(Value::Null)
         }
+        "list_agent_models" => {
+            Ok(serde_json::to_value(list_agent_models()?).map_err(|e| e.to_string())?)
+        }
         "run_repo_agent" => {
             let parsed: RunRepoAgentArgs = deserialize_args(args)?;
             run_repo_agent(
@@ -642,6 +646,7 @@ fn invoke_dispatch(
                 parsed.run_id,
                 parsed.force_approve,
                 parsed.simulate_mode,
+                parsed.model,
             )?;
             Ok(Value::Null)
         }

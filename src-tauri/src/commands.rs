@@ -3,7 +3,7 @@ use crate::host_api::HostBridgeState;
 use rusqlite::Connection;
 use serde::Serialize;
 use serde_json::to_value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::process::Command;
@@ -34,6 +34,13 @@ pub struct Agent {
     pub repo_id: i64,
     pub name: String,
     pub created_at: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentModelOption {
+    pub id: String,
+    pub name: String,
 }
 
 pub struct AgentRuntimeState {
@@ -1159,6 +1166,7 @@ pub fn run_repo_agent(
     run_id: String,
     force_approve: Option<bool>,
     simulate_mode: Option<bool>,
+    model: Option<String>,
 ) -> Result<(), String> {
     let trimmed_prompt = prompt.trim();
     if trimmed_prompt.is_empty() {
@@ -1181,7 +1189,11 @@ pub fn run_repo_agent(
     let mut process = if use_simulator {
         create_simulator_agent_command(trimmed_prompt, &repo_path)?
     } else {
-        create_cursor_agent_command(trimmed_prompt, force_approve.unwrap_or(true))?
+        create_cursor_agent_command(
+            trimmed_prompt,
+            force_approve.unwrap_or(true),
+            model.as_deref(),
+        )?
     };
     process.current_dir(repo);
     process.stdin(Stdio::null());
@@ -1330,9 +1342,92 @@ pub fn stop_repo_agent(
     Ok(())
 }
 
+#[tauri::command]
+pub fn list_agent_models() -> Result<Vec<AgentModelOption>, String> {
+    let output = Command::new("agent")
+        .arg("models")
+        .output()
+        .map_err(|e| format!("Failed to run agent models: {}", e))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let message = if !stderr.is_empty() {
+            stderr
+        } else if !stdout.is_empty() {
+            stdout
+        } else {
+            "Failed to list models from agent CLI".to_string()
+        };
+        return Err(message);
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let cleaned_output = strip_ansi_codes(&stdout);
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut models: Vec<AgentModelOption> = Vec::new();
+
+    for line in cleaned_output.lines() {
+        let trimmed_line = line.trim();
+        if trimmed_line.is_empty() {
+            continue;
+        }
+        if trimmed_line.starts_with("Loading models") {
+            continue;
+        }
+        if trimmed_line.starts_with("Available models") {
+            continue;
+        }
+        if trimmed_line.starts_with("Tip: use --model") {
+            continue;
+        }
+
+        let (model_id, display_name) = if let Some((id_part, name_part)) = trimmed_line.split_once(" - ")
+        {
+            let model_id = id_part.trim();
+            if model_id.is_empty() {
+                continue;
+            }
+            let name_part = name_part.trim();
+            let display_name = if name_part.is_empty() {
+                model_id.to_string()
+            } else {
+                name_part.to_string()
+            };
+            (model_id, display_name)
+        } else {
+            let model_id = trimmed_line;
+            if model_id.is_empty() {
+                continue;
+            }
+            (model_id, model_id.to_string())
+        };
+
+        if !model_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+        {
+            continue;
+        }
+        let id_owned = model_id.to_string();
+        if seen.insert(id_owned.clone()) {
+            models.push(AgentModelOption {
+                id: id_owned,
+                name: display_name,
+            });
+        }
+    }
+
+    if models.is_empty() {
+        return Err("No models were returned by the agent CLI".to_string());
+    }
+
+    Ok(models)
+}
+
 fn create_cursor_agent_command(
     prompt: &str,
     force_approve: bool,
+    model: Option<&str>,
 ) -> Result<std::process::Command, String> {
     #[cfg(target_os = "windows")]
     {
@@ -1349,6 +1444,9 @@ fn create_cursor_agent_command(
         command.args(["/C", agent_path.to_string_lossy().as_ref()]);
         command.arg(prompt);
         command.args(["--output-format", "stream-json", "--print"]);
+        if let Some(trimmed_model) = model.map(str::trim).filter(|value| !value.is_empty()) {
+            command.args(["--model", trimmed_model]);
+        }
         if force_approve {
             command.arg("--force");
         }
@@ -1360,6 +1458,9 @@ fn create_cursor_agent_command(
         let mut command = std::process::Command::new("cursor-agent");
         command.arg(prompt);
         command.args(["--output-format", "stream-json", "--print"]);
+        if let Some(trimmed_model) = model.map(str::trim).filter(|value| !value.is_empty()) {
+            command.args(["--model", trimmed_model]);
+        }
         if force_approve {
             command.arg("--force");
         }
@@ -1402,6 +1503,34 @@ fn command_exists(command: &str) -> bool {
         .status()
         .map(|status| status.success())
         .unwrap_or(false)
+}
+
+fn strip_ansi_codes(input: &str) -> String {
+    let mut output = String::new();
+    let mut character_iterator = input.chars().peekable();
+
+    while let Some(character) = character_iterator.next() {
+        if character != '\u{1b}' {
+            output.push(character);
+            continue;
+        }
+
+        let Some(next_character) = character_iterator.peek().copied() else {
+            break;
+        };
+        if next_character != '[' {
+            continue;
+        }
+
+        let _ = character_iterator.next();
+        while let Some(escape_character) = character_iterator.next() {
+            if ('@'..='~').contains(&escape_character) {
+                break;
+            }
+        }
+    }
+
+    output
 }
 
 #[tauri::command]

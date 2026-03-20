@@ -14,6 +14,10 @@ import {
 } from '@/components/ui/sidebar';
 import {Toaster} from '@/components/ui/sonner';
 import {
+	resolveRunModelFromInput,
+	runModelChoiceToDisplay,
+} from '@/lib/agent-model';
+import {
 	getVersion,
 	getWebAuthToken,
 	invoke,
@@ -27,6 +31,8 @@ import {
 import type {
 	Agent,
 	AgentConversationEntry,
+	AgentModelOption,
+	AgentRunModelChoice,
 	GitCommit,
 	GitCommitFileDiff,
 	Group,
@@ -339,6 +345,12 @@ function App() {
 	const [agentModelById, setAgentModelById] = useState<Record<number, string>>(
 		{},
 	);
+	const [agentRunModelById, setAgentRunModelById] = useState<
+		Record<number, AgentRunModelChoice>
+	>({});
+	const [agentModelOptions, setAgentModelOptions] = useState<
+		AgentModelOption[]
+	>([]);
 	const [historyCommits, setHistoryCommits] = useState<GitCommit[]>([]);
 	const [selectedCommitHash, setSelectedCommitHash] = useState<string | null>(
 		null,
@@ -489,6 +501,22 @@ function App() {
 			setGroups(result);
 		} catch (error) {
 			console.error('Failed to load groups:', error);
+		}
+	}, [isRuntimeAuthorized]);
+
+	const loadAgentModelOptions = useCallback(async () => {
+		if (!isRuntimeAuthorized) return;
+		try {
+			const result = await invoke<AgentModelOption[]>('list_agent_models');
+			const sanitizedModels = result
+				.map(option => ({
+					id: option.id.trim(),
+					name: (option.name.trim() || option.id.trim()).trim(),
+				}))
+				.filter(option => option.id.length > 0);
+			setAgentModelOptions(sanitizedModels);
+		} catch (error) {
+			console.error('Failed to load agent models:', error);
 		}
 	}, [isRuntimeAuthorized]);
 
@@ -680,7 +708,14 @@ function App() {
 		loadRepos();
 		loadGroups();
 		loadHostAccessSettings();
-	}, [isRuntimeAuthorized, loadRepos, loadGroups, loadHostAccessSettings]);
+		loadAgentModelOptions();
+	}, [
+		isRuntimeAuthorized,
+		loadRepos,
+		loadGroups,
+		loadHostAccessSettings,
+		loadAgentModelOptions,
+	]);
 
 	useEffect(() => {
 		(async () => {
@@ -737,6 +772,7 @@ function App() {
 			setAgentMessagesById({});
 			setAgentLogsById({});
 			setAgentModelById({});
+			setAgentRunModelById({});
 			thinkingMessageIdByAgentReference.current = {};
 			pendingEditedPathByAgentReference.current = {};
 			return;
@@ -1119,6 +1155,13 @@ function App() {
 		}
 
 		const runId = randomRunId();
+		const modelDisplay = runModelChoiceToDisplay(
+			agentRunModelById[selectedAgentId],
+		);
+		const selectedAgentRunModel = resolveRunModelFromInput(
+			modelDisplay,
+			agentModelOptions,
+		).shortName.trim();
 		delete thinkingMessageIdByAgentReference.current[selectedAgentId];
 		setRunningAgentIds(previous =>
 			previous.includes(selectedAgentId)
@@ -1138,6 +1181,7 @@ function App() {
 				runId,
 				forceApprove: true,
 				simulateMode: isSimulatorMode,
+				model: selectedAgentRunModel || null,
 			});
 		} catch (error) {
 			finalizeThinkingMessage(selectedAgentId, true);
@@ -1153,6 +1197,8 @@ function App() {
 		selectedRepo,
 		selectedAgentId,
 		agentPrompt,
+		agentRunModelById,
+		agentModelOptions,
 		isSimulatorMode,
 		runningAgentIds,
 		appendAgentMessage,
@@ -1189,6 +1235,11 @@ function App() {
 				});
 				setRunningAgentIds(previous => previous.filter(id => id !== agent.id));
 				setAgentModelById(previous => {
+					const next = {...previous};
+					delete next[agent.id];
+					return next;
+				});
+				setAgentRunModelById(previous => {
 					const next = {...previous};
 					delete next[agent.id];
 					return next;
@@ -1278,6 +1329,9 @@ function App() {
 	const selectedAgentModel = selectedAgentId
 		? (agentModelById[selectedAgentId] ?? null)
 		: null;
+	const selectedAgentRunModel = selectedAgentId
+		? runModelChoiceToDisplay(agentRunModelById[selectedAgentId])
+		: '';
 
 	if (!isRuntimeAuthorized) {
 		return (
@@ -1475,6 +1529,8 @@ function App() {
 								<RepoAgentsView
 									selectedAgent={selectedAgent}
 									model={selectedAgentModel}
+									modelInput={selectedAgentRunModel}
+									modelOptions={agentModelOptions}
 									prompt={agentPrompt}
 									messages={selectedAgentMessages}
 									logs={selectedAgentLogs}
@@ -1482,6 +1538,16 @@ function App() {
 									showRawLogs={showRawLogs}
 									onOpenEditedFile={path => void openAgentMessageFile(path)}
 									onPromptChange={setAgentPrompt}
+									onModelInputChange={raw => {
+										if (!selectedAgentId) return;
+										setAgentRunModelById(previous => ({
+											...previous,
+											[selectedAgentId]: resolveRunModelFromInput(
+												raw,
+												agentModelOptions,
+											),
+										}));
+									}}
 									onRunPrompt={() => void runPromptOnAgent()}
 									onStopRun={() => void stopAgentRun()}
 									onClearChat={clearSelectedAgentChat}

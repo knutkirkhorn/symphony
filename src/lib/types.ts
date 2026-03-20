@@ -48,6 +48,17 @@ export type Agent = {
 	created_at: string;
 };
 
+/** Short id for `--model` and human-readable label from the agent CLI */
+export type AgentModelOption = {
+	id: string;
+	name: string;
+};
+
+export type AgentRunModelChoice = {
+	shortName: string;
+	prettyName: string;
+};
+
 export type AgentConversationEntry = {
 	id: string;
 	role: 'user' | 'assistant' | 'tool' | 'system' | 'error';
