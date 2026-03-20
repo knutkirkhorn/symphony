@@ -165,13 +165,8 @@ function parseAgentConversationLine(
 		};
 
 		if (record.type === 'user') {
-			const text =
-				record.message?.content
-					?.filter(content => content.type === 'text')
-					.map(content => content.text)
-					.filter(Boolean)
-					.join('\n') ?? '';
-			if (text) return {role: 'user', text};
+			// User messages are added optimistically before the run starts, so skip them here.
+			return null;
 		}
 
 		if (record.type === 'assistant') {
