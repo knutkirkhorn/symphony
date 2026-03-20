@@ -616,6 +616,16 @@ export function RepoAgentsView({
 											modelPopoverWidth ? {width: modelPopoverWidth} : undefined
 										}
 										onOpenAutoFocus={event => event.preventDefault()}
+										onInteractOutside={event => {
+											const row = modelRowReference.current;
+											if (
+												row &&
+												event.target instanceof Node &&
+												row.contains(event.target)
+											) {
+												event.preventDefault();
+											}
+										}}
 									>
 										<ScrollArea className="max-h-64">
 											<div className="flex flex-col gap-px p-1">
