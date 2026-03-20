@@ -307,6 +307,110 @@ export function RepoAgentsView({
 		});
 	}, [modelOptions, normalizedModelInput]);
 
+	const [modelHighlightIndex, setModelHighlightIndex] = useState(-1);
+	const modelOptionReferences = useRef<Map<string, HTMLButtonElement | null>>(
+		new Map(),
+	);
+
+	useEffect(() => {
+		setModelHighlightIndex(-1);
+	}, [normalizedModelInput]);
+
+	useEffect(() => {
+		if (!modelPickerOpen) {
+			setModelHighlightIndex(-1);
+		}
+	}, [modelPickerOpen]);
+
+	useEffect(() => {
+		setModelHighlightIndex(previous =>
+			previous >= filteredModelOptions.length ? -1 : previous,
+		);
+	}, [filteredModelOptions.length]);
+
+	useLayoutEffect(() => {
+		if (
+			modelHighlightIndex < 0 ||
+			modelHighlightIndex >= filteredModelOptions.length
+		) {
+			return;
+		}
+		const option = filteredModelOptions[modelHighlightIndex];
+		if (!option) {
+			return;
+		}
+		const element = modelOptionReferences.current.get(option.id);
+		element?.scrollIntoView({block: 'nearest'});
+	}, [filteredModelOptions, modelHighlightIndex]);
+
+	const handleModelInputKeyDown = useCallback(
+		(event: React.KeyboardEvent<HTMLInputElement>) => {
+			if (!selectedAgent || isRunning) {
+				return;
+			}
+			const count = filteredModelOptions.length;
+			if (event.key === 'Escape' && modelPickerOpen) {
+				event.preventDefault();
+				setModelPickerOpen(false);
+				return;
+			}
+			if (event.key === 'ArrowDown') {
+				if (count === 0) {
+					return;
+				}
+				event.preventDefault();
+				if (!modelPickerOpen) {
+					setModelPickerOpen(true);
+				}
+				setModelHighlightIndex(index => {
+					if (index < 0) {
+						return 0;
+					}
+					return Math.min(index + 1, count - 1);
+				});
+				return;
+			}
+			if (event.key === 'ArrowUp') {
+				if (!modelPickerOpen || count === 0) {
+					return;
+				}
+				event.preventDefault();
+				setModelHighlightIndex(index => {
+					if (index <= 0) {
+						return -1;
+					}
+					return index - 1;
+				});
+				return;
+			}
+			if (event.key === 'Enter') {
+				if (!modelPickerOpen || count === 0) {
+					return;
+				}
+				const index =
+					modelHighlightIndex >= 0 ? modelHighlightIndex : count === 1 ? 0 : -1;
+				if (index < 0) {
+					return;
+				}
+				event.preventDefault();
+				const option = filteredModelOptions[index];
+				if (!option) {
+					return;
+				}
+				onModelInputChange(option.id);
+				setModelPickerOpen(false);
+			}
+		},
+		[
+			filteredModelOptions,
+			isRunning,
+			modelHighlightIndex,
+			modelPickerOpen,
+			onModelInputChange,
+			selectedAgent,
+		],
+	);
+
 	useLayoutEffect(() => {
 		const row = modelRowReference.current;
 		if (!row) {
@@ -579,6 +683,7 @@ export function RepoAgentsView({
 														onModelInputChange(event.target.value);
 														setModelPickerOpen(true);
 													}}
+													onKeyDown={handleModelInputKeyDown}
 													onFocus={() => {
 														if (selectedAgent && !isRunning) {
 															setModelPickerOpen(true);
@@ -588,6 +693,17 @@ export function RepoAgentsView({
 													className="min-w-0 flex-1 pr-3"
 													autoComplete="off"
 													spellCheck={false}
+													role="combobox"
+													aria-expanded={modelPickerOpen}
+													aria-autocomplete="list"
+													aria-controls="model-suggestions"
+													aria-activedescendant={
+														modelPickerOpen &&
+														modelHighlightIndex >= 0 &&
+														filteredModelOptions[modelHighlightIndex]
+															? `model-suggestion-${modelHighlightIndex}`
+															: undefined
+													}
 												/>
 												<Button
 													type="button"
@@ -628,7 +744,11 @@ export function RepoAgentsView({
 										}}
 									>
 										<ScrollArea className="max-h-64">
-											<div className="flex flex-col gap-px p-1">
+											<div
+												id="model-suggestions"
+												className="flex flex-col gap-px p-1"
+												role="listbox"
+											>
 												{modelOptions.length === 0 ? (
 													<p className="px-2 py-3 text-center text-sm text-muted-foreground">
 														No models loaded. Type a model id or run{' '}
@@ -642,18 +762,38 @@ export function RepoAgentsView({
 														No model matches "{modelInput.trim()}".
 													</p>
 												) : (
-													filteredModelOptions.map(option => {
+													filteredModelOptions.map((option, optionIndex) => {
 														const isSelected =
 															option.id === resolvedRunModel.shortName;
+														const isHighlighted =
+															optionIndex === modelHighlightIndex &&
+															modelHighlightIndex >= 0;
 														return (
 															<button
 																key={option.id}
+																id={`model-suggestion-${optionIndex}`}
 																type="button"
+																role="option"
+																aria-selected={isSelected}
+																ref={element => {
+																	if (element) {
+																		modelOptionReferences.current.set(
+																			option.id,
+																			element,
+																		);
+																	} else {
+																		modelOptionReferences.current.delete(
+																			option.id,
+																		);
+																	}
+																}}
 																className={cn(
 																	'flex w-full min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5 rounded-md px-2.5 py-2 text-left text-sm transition-colors',
 																	'hover:bg-accent hover:text-accent-foreground',
 																	'focus-visible:bg-accent focus-visible:text-accent-foreground focus-visible:outline-none',
 																	isSelected && 'bg-accent/80',
+																	isHighlighted &&
+																		'bg-accent text-accent-foreground ring-2 ring-inset ring-ring',
 																)}
 																onClick={() => {
 																	onModelInputChange(option.id);
