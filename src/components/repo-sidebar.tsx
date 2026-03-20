@@ -85,6 +85,7 @@ import {
 	Settings,
 	Square,
 	Trash2,
+	X,
 } from 'lucide-react';
 import {useCallback, useEffect, useRef, useState, type FormEvent} from 'react';
 import {toast} from 'sonner';
@@ -1315,13 +1316,22 @@ function GroupSection({
 								) : (
 									repos.map(repo => {
 										const repoAgents = agentsByRepoId[repo.id] ?? [];
-										const visibleAgents = isFiltering
-											? repoAgents.filter(agent =>
-													agent.name
-														.toLowerCase()
-														.includes(normalizedSearchQuery),
-												)
-											: repoAgents;
+										const repoMatchesByNameOrPath =
+											isFiltering &&
+											(repo.name
+												.toLowerCase()
+												.includes(normalizedSearchQuery) ||
+												repo.path
+													.toLowerCase()
+													.includes(normalizedSearchQuery));
+										const visibleAgents =
+											isFiltering && !repoMatchesByNameOrPath
+												? repoAgents.filter(agent =>
+														agent.name
+															.toLowerCase()
+															.includes(normalizedSearchQuery),
+													)
+												: repoAgents;
 										return (
 											<DraggableRepoItem
 												key={repo.id}
@@ -1508,11 +1518,16 @@ function UngroupedSection({
 				<SidebarMenu>
 					{repos.map(repo => {
 						const repoAgents = agentsByRepoId[repo.id] ?? [];
-						const visibleAgents = isFiltering
-							? repoAgents.filter(agent =>
-									agent.name.toLowerCase().includes(normalizedSearchQuery),
-								)
-							: repoAgents;
+						const repoMatchesByNameOrPath =
+							isFiltering &&
+							(repo.name.toLowerCase().includes(normalizedSearchQuery) ||
+								repo.path.toLowerCase().includes(normalizedSearchQuery));
+						const visibleAgents =
+							isFiltering && !repoMatchesByNameOrPath
+								? repoAgents.filter(agent =>
+										agent.name.toLowerCase().includes(normalizedSearchQuery),
+									)
+								: repoAgents;
 						return (
 							<DraggableRepoItem
 								key={repo.id}
@@ -1790,13 +1805,23 @@ export function RepoSidebar({
 						</Tooltip>
 					</div>
 				</div>
-				<div className="mt-2">
+				<div className="relative mt-2">
 					<Input
 						value={repoSearchQuery}
 						onChange={event => setRepoSearchQuery(event.target.value)}
 						placeholder="Search repositories and agents..."
-						className="h-8"
+						className="h-8 pr-7"
 					/>
+					{repoSearchQuery.length > 0 && (
+						<button
+							type="button"
+							onClick={() => setRepoSearchQuery('')}
+							className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+							aria-label="Clear search"
+						>
+							<X className="size-3.5" />
+						</button>
+					)}
 				</div>
 			</SidebarHeader>
 			<SidebarContent>
