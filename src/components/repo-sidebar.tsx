@@ -464,7 +464,7 @@ function DraggableRepoItem({
 							</span>
 						)}
 						{syncStatus?.can_pull && (
-							<span className="ml-auto mr-1 rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300">
+							<span className="ml-1 shrink-0 rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300">
 								{syncStatus.behind} new
 							</span>
 						)}
