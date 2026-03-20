@@ -146,6 +146,45 @@ function MessageCodeBlock({
 	);
 }
 
+function RawLogsCopyButton({logs}: {logs: string[]}) {
+	const [copied, setCopied] = useState(false);
+
+	async function handleCopy() {
+		try {
+			await navigator.clipboard.writeText(logs.join('\n'));
+			setCopied(true);
+			setTimeout(() => {
+				setCopied(false);
+			}, 1500);
+		} catch {
+			// Ignore clipboard failures in restricted environments.
+		}
+	}
+
+	return (
+		<button
+			type="button"
+			onClick={() => void handleCopy()}
+			disabled={logs.length === 0}
+			className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+			aria-label="Copy raw logs"
+			title="Copy raw logs"
+		>
+			{copied ? (
+				<>
+					<Check className="size-3.5" />
+					Copied
+				</>
+			) : (
+				<>
+					<Copy className="size-3.5" />
+					Copy
+				</>
+			)}
+		</button>
+	);
+}
+
 function MessageContent({text}: {text: string}) {
 	return (
 		<div className="space-y-1">
@@ -878,10 +917,11 @@ export function RepoAgentsView({
 
 					{showRawLogs && (
 						<div className="h-28 shrink-0 overflow-hidden border-t border-border/70 pt-2 md:h-32 px-1 md:px-4">
-							<div className="px-1 py-1.5">
+							<div className="flex items-center justify-between px-1 py-1.5">
 								<p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
 									Raw logs
 								</p>
+								<RawLogsCopyButton logs={logs} />
 							</div>
 							<ScrollArea className="h-full">
 								<div className="space-y-1 rounded-md bg-muted/20 p-2.5 font-mono text-xs leading-relaxed">
