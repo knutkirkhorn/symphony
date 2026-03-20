@@ -1,10 +1,6 @@
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
-import {
-	Popover,
-	PopoverAnchor,
-	PopoverContent,
-} from '@/components/ui/popover';
+import {Popover, PopoverAnchor, PopoverContent} from '@/components/ui/popover';
 import {ScrollArea} from '@/components/ui/scroll-area';
 import {Separator} from '@/components/ui/separator';
 import {resolveRunModelFromInput} from '@/lib/agent-model';
@@ -617,9 +613,7 @@ export function RepoAgentsView({
 										sideOffset={6}
 										className="max-w-none p-0"
 										style={
-											modelPopoverWidth
-												? {width: modelPopoverWidth}
-												: undefined
+											modelPopoverWidth ? {width: modelPopoverWidth} : undefined
 										}
 										onOpenAutoFocus={event => event.preventDefault()}
 									>
